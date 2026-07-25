@@ -40,6 +40,9 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}/
         run: npm run build
 
+      # Requires Settings -> Pages -> Source = "GitHub Actions" (a one-time
+      # change only the repository owner can make; the workflow token cannot
+      # create the Pages site itself).
       - uses: actions/configure-pages@v5
         with:
           enablement: true

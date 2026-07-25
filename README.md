@@ -209,6 +209,15 @@ Pushing to `main` builds the site and publishes it to GitHub Pages
 repository name, so a project site at `/raindrop/` works with no configuration.
 For a custom domain or a root-level site, set `BASE_PATH=/`.
 
+**One-time setup, which only the repository owner can do:** open
+*Settings → Pages* and set **Source** to **GitHub Actions**. Until that switch
+is flipped the deploy job fails at `actions/configure-pages` with
+`Resource not accessible by integration` — the workflow token is not allowed to
+create the Pages site itself. Note that Pages on a **private** repository needs
+a paid plan; on the free plan, make the repository public first. Once Pages is
+enabled, re-run the workflow (Actions → Deploy to GitHub Pages → Re-run) and
+the site appears at `https://<owner>.github.io/<repo>/`.
+
 The published data is ~110 MB and lives in `web/public/data`, which is why it is
 committed rather than regenerated in CI: the DEM download and the hydrology run
 need several GB of RAM and a few hundred megabytes of source tiles.

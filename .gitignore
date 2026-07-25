@@ -12,3 +12,5 @@ node_modules/
 web/dist/
 web/dev-dist/
 *.log
+web/tsconfig.tsbuildinfo
+web/test-results/
