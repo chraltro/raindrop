@@ -378,7 +378,9 @@ export function MapCanvas() {
   useEffect(() => {
     const path = s.trace?.path
     if (!path) { routeData.current = []; return }
-    const n = path.lon.length
+    // Stop drawing where the route goes under the sea; the animation still
+    // runs the whole path, it just is not drawn out into open water.
+    const n = Math.max(2, Math.min(path.lon.length, path.seaAt ?? path.lon.length))
     const coords: [number, number][] = new Array(n)
     const timestamps: number[] = new Array(n)
     for (let i = 0; i < n; i++) {

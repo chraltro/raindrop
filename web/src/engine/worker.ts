@@ -96,7 +96,7 @@ async function init(url: string) {
 function serialise(p: TracedPath) {
   return {
     lon: p.lon, lat: p.lat, elev: p.elev, area: p.area, dist: p.dist,
-    cls: p.cls, terminal: p.terminal, truncated: p.truncated,
+    cls: p.cls, terminal: p.terminal, truncated: p.truncated, seaAt: p.seaAt,
     x: p.x, y: p.y,
   }
 }

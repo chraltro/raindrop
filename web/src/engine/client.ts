@@ -14,6 +14,7 @@ export interface SerialPath {
   y: Int32Array
   terminal: number
   truncated: boolean
+  seaAt: number
 }
 
 export interface BasinRecord {

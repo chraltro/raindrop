@@ -26,6 +26,8 @@ export interface TracedPath {
   cls: Uint8Array
   terminal: number
   truncated: boolean
+  /** Draw the route up to here: past it the cells are already under the sea. */
+  seaAt: number
 }
 
 export interface Watershed {
@@ -197,7 +199,18 @@ export class FlowEngine {
       if (Number.isFinite(area[i])) lastArea = area[i]
       else area[i] = lastArea
     }
-    return { x: X, y: Y, lon, lat, elev, area, dist, cls, terminal, truncated }
+
+    // The sea mask is a 1:10m coastline rasterised onto 250 m cells, so the
+    // last cell or two of a route are often already under water — the DEM there
+    // reads tens of metres below sea level. Drawn over satellite imagery that
+    // is a river running out into the fjord. `seaAt` is where the drawing
+    // should stop; the path itself stays whole, because the real outlet cell is
+    // what identifies the basin, and because a delta below sea level (the Rhine
+    // through the polders) is not a mask error and must not be cut.
+    let seaAt = n
+    if (terminal === CLASS.OCEAN)
+      while (seaAt > 2 && seaAt > n - 3 && elev[seaAt - 1] <= -1) seaAt--
+    return { x: X, y: Y, lon, lat, elev, area, dist, cls, terminal, truncated, seaAt }
   }
 
   // --------------------------------------------------------------- snapping

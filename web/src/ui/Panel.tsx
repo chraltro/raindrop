@@ -145,11 +145,20 @@ function JourneyView({ trace }: { trace: TraceResult }) {
       <div className="section">
         <h3>Water path</h3>
         <Journey steps={st.steps} doneAt={doneAt} />
+        {start.area < 1.5 ? (
+          <p className="note">
+            The drop starts on open ground: only {f.area(start.area)} drains to
+            this point, which is below what a 250 m grid can carry as a channel.
+            The first stretch is modelled overland flow — it crosses fields and
+            follows the lie of the land, not a mapped stream, and no watercourse
+            will be visible under it.
+          </p>
+        ) : null}
       </div>
 
       <div className="section">
         <h3>Long profile</h3>
-        <ElevationProfile path={trace!.path} progress={progress}
+        <ElevationProfile path={trace.path} progress={progress}
           marks={st.tributaries.map((t) => ({ at: t.at, name: t.name }))} />
       </div>
 
