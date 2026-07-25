@@ -106,18 +106,29 @@ export class FlowEngine {
   }
 
   // ------------------------------------------------------------- downstream
-  async traceDown(px0: number, py0: number, maxSteps = 80000): Promise<TracedPath> {
+  async traceDown(px0: number, py0: number, maxSteps = 40000): Promise<TracedPath> {
     const xs: number[] = []
     const ys: number[] = []
     let px = px0
     let py = py0
-    let terminal = CLASS.EDGE
+    let terminal: number = CLASS.EDGE
     let truncated = false
+    // Water cannot flow in a circle. If the directions ever say it does — a bad
+    // cell, a seam between tiles, a tile that answered as ocean — the walk has
+    // to notice, or it ping-pongs between two cells for forty thousand steps
+    // and reports a journey of tens of thousands of kilometres.
+    const seen = new Set<number>()
     for (let step = 0; step < maxSteps; step++) {
-      if (!this.tiles.has('flow', px >> 9, py >> 9)) await this.tiles.load('flow', px >> 9, py >> 9)
+      const sx = px >> 9
+      const sy = py >> 9
+      if (!this.tiles.has('flow', sx, sy)) await this.tiles.load('flow', sx, sy)
+      if (this.tiles.failed('flow', sx, sy)) { truncated = true; break }
       const b = this.byteAt(px, py)
       xs.push(px)
       ys.push(py)
+      const id = py * 0x1000000 + px
+      if (seen.has(id)) { terminal = CLASS.SINK; break }
+      seen.add(id)
       const dir = b & 15
       if (dir === 0) { terminal = b >> 4; break }
       px += DX[dir]
@@ -168,30 +179,53 @@ export class FlowEngine {
       elev[i] = this.elevAt(X[i], Y[i])
       dist[i] = i === 0 ? 0 : dist[i - 1] + haversine(lon[i - 1], lat[i - 1], lo, la)
     }
-    // water cannot climb: clamp the profile to its running minimum
-    let run = elev[0]
+    // Water cannot climb: clamp the profile to its running minimum. Seeding the
+    // running value from elev[0] meant one missing elevation tile at the start
+    // made every elevation NaN, and from there the slope, the speed and the
+    // travel time were all NaN too.
+    let first = 0
+    while (first < n && !Number.isFinite(elev[first])) first++
+    let run = first < n ? elev[first] : 0
     for (let i = 0; i < n; i++) {
       if (!Number.isFinite(elev[i])) elev[i] = run
       if (elev[i] < run) run = elev[i]
       else elev[i] = run
+    }
+    // A missing accumulation tile must not poison the discharge either.
+    let lastArea = 0
+    for (let i = 0; i < n; i++) {
+      if (Number.isFinite(area[i])) lastArea = area[i]
+      else area[i] = lastArea
     }
     return { x: X, y: Y, lon, lat, elev, area, dist, cls, terminal, truncated }
   }
 
   // --------------------------------------------------------------- snapping
   /** Highest-accumulation cell within `radius` cells — used to grab a river. */
+  /**
+   * Move a tap onto the nearest real watercourse — but only if there is one.
+   * A hillside click has to stay a hillside click, so the winner must drain
+   * several times more land than the cell that was actually tapped; near a
+   * river that is always true, on open ground it never is.
+   */
   async snapToRiver(px: number, py: number, radius = 8): Promise<[number, number, number]> {
     for (let dy = -1; dy <= 1; dy++)
       for (let dx = -1; dx <= 1; dx++)
         await this.prime(px + dx * 512, py + dy * 512)
-    let best: [number, number, number] = [px, py, this.areaAt(px, py) || 0]
+    const here = this.areaAt(px, py) || 0
+    const floor = Math.max(4, here * 5)
+    let best: [number, number, number] = [px, py, here]
+    let bestScore = -1
     for (let dy = -radius; dy <= radius; dy++)
       for (let dx = -radius; dx <= radius; dx++) {
         const x = px + dx
         const y = py + dy
         if (!this.inGrid(x, y)) continue
         const a = this.areaAt(x, y)
-        if (a > best[2]) best = [x, y, a]
+        if (!(a >= floor)) continue
+        // prefer the biggest river, but not one far away over one underfoot
+        const score = Math.log10(a + 1) - Math.hypot(dx, dy) / (radius + 1)
+        if (score > bestScore) { bestScore = score; best = [x, y, a] }
       }
     return best
   }

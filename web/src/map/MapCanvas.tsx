@@ -11,11 +11,23 @@ import { isCompact } from '../ui/useMedia'
 
 const START_VIEW = { center: [10.5, 50.2] as [number, number], zoom: 4.1, pitch: 0, bearing: 0 }
 
-/** Small screens and metered connections wait longer for the 13 MB detail layer. */
+/** Small screens and metered connections wait longer for the 11 MB detail layer. */
 function detailZoom(): number {
   const conn = (navigator as unknown as { connection?: { saveData?: boolean } }).connection
-  if (conn?.saveData) return 99
-  return isCompact() ? 9 : 7.6
+  // 99 meant "never", so anyone with data saver on — which many phones ship
+  // enabled — only ever saw the big rivers, at every zoom.
+  if (conn?.saveData) return 10.5
+  return isCompact() ? 8.6 : 7.6
+}
+
+/**
+ * How far a tap may be from a river before it stops counting as aiming at it.
+ * A drawn river is a simplified line over ~400 m cells, so at low zoom the
+ * water can be a few cells from where it appears; without this, tapping a
+ * river ran the drop down whatever hillside the finger actually landed on.
+ */
+function snapRadius(zoom: number): number {
+  return Math.max(1, Math.min(12, Math.round(14 / 2 ** (zoom - 8))))
 }
 
 /** Animation duration in seconds for a path of the given length. */
@@ -50,7 +62,11 @@ export function MapCanvas() {
       }),
       center: START_VIEW.center,
       zoom: START_VIEW.zoom,
-      maxZoom: 16,
+      // The hydrology is a ~250 m grid. Past zoom 13 one flow cell is wider
+      // than a fingertip, so a tap lands visibly away from the cell centre the
+      // route has to start at — the basemap looks sharper, the answer does not
+      // get better, and the drop appears to miss.
+      maxZoom: 13,
       minZoom: 2.6,
       attributionControl: false,
       hash: false,
@@ -236,7 +252,8 @@ export function MapCanvas() {
       if (!st.ready) return
       if (st.mode === 'upstream') void st.exploreUpstream(lng, lat)
       else if (st.mode === 'compare') void st.addCompare(lng, lat)
-      else void st.dropAt(lng, lat, e.originalEvent.shiftKey)
+      else void st.dropAt(lng, lat,
+        e.originalEvent.shiftKey ? 10 : snapRadius(map.getZoom()))
     }
     map.on('click', onClick)
     return () => { map.off('click', onClick) }

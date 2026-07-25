@@ -18,6 +18,8 @@ export class TileCache {
   private canvas: OffscreenCanvas | null = null
   private ctx: OffscreenCanvasRenderingContext2D | null = null
   private available: Record<Layer, Set<string> | null> = { flow: null, acc: null, elev: null }
+  /** Tiles the network refused; the answer that used them cannot be trusted. */
+  private failures = new Set<string>()
   bytesLoaded = 0
   tilesLoaded = 0
 
@@ -33,6 +35,10 @@ export class TileCache {
 
   has(layer: Layer, sx: number, sy: number): boolean {
     return this.cache.has(this.key(layer, sx, sy))
+  }
+
+  failed(layer: Layer, sx: number, sy: number): boolean {
+    return this.failures.has(this.key(layer, sx, sy))
   }
 
   exists(layer: Layer, sx: number, sy: number): boolean {
@@ -69,19 +75,32 @@ export class TileCache {
         return data
       })
       .catch(() => {
+        // A tile that could not be fetched is answered as ocean so the walk
+        // ends rather than hangs — but it is deliberately not cached, and it is
+        // recorded, so the route can say it is incomplete instead of claiming
+        // the drop reached the sea in the middle of a valley.
+        this.pending.delete(key)
+        this.failures.add(key)
         const empty = new Uint8Array(size * size)
         if (layer === 'flow') empty.fill(OCEAN_BYTE)
-        this.cache.set(key, empty)
-        this.pending.delete(key)
         return empty
       })
     this.pending.set(key, p)
     return p
   }
 
-  private async fetchTile(url: string, size: number): Promise<Uint8Array> {
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`${res.status} ${url}`)
+  private async fetchTile(url: string, size: number, tries = 3): Promise<Uint8Array> {
+    let res: Response | null = null
+    for (let i = 0; i < tries; i++) {
+      try {
+        res = await fetch(url)
+        if (res.ok) break
+        if (res.status === 404) break      // genuinely not published
+        res = null
+      } catch { res = null }
+      if (i < tries - 1) await new Promise((r) => setTimeout(r, 300 * 2 ** i))
+    }
+    if (!res || !res.ok) throw new Error(`fetch failed ${url}`)
     const blob = await res.blob()
     const bmp = await createImageBitmap(blob, {
       colorSpaceConversion: 'none',

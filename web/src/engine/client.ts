@@ -105,15 +105,15 @@ export class HydroClient {
     return r
   }
 
-  trace(lon: number, lat: number, snap = false) {
+  trace(lon: number, lat: number, snap: number | boolean = 0) {
     return this.call<TraceResult>('trace', [lon, lat, snap])
   }
 
-  watershed(lon: number, lat: number, snap = true) {
+  watershed(lon: number, lat: number, snap: number | boolean = true) {
     return this.call<WatershedResult>('watershed', [lon, lat, snap])
   }
 
-  upstream(lon: number, lat: number, snap = true) {
+  upstream(lon: number, lat: number, snap: number | boolean = true) {
     return this.call<UpstreamResult>('upstream', [lon, lat, snap])
   }
 

@@ -63,9 +63,12 @@ export function sizeClass(area: number): string {
  * which is far slower than channel flow.
  */
 export function velocity(area: number, slope: number, specificRunoff = 300): number {
-  const s = Math.max(slope, 1e-5)
-  if (area < 1) return Math.min(0.6, Math.max(0.03, 1.2 * Math.sqrt(s)))
-  const q = (area * specificRunoff) / 31557.6            // m³/s
+  // Anything unmeasurable falls back to a typical lowland gradient rather than
+  // propagating a NaN through the whole travel time.
+  const s = Number.isFinite(slope) ? Math.max(slope, 1e-5) : 1e-3
+  const a = Number.isFinite(area) ? area : 1
+  if (a < 1) return Math.min(0.6, Math.max(0.03, 1.2 * Math.sqrt(s)))
+  const q = (a * specificRunoff) / 31557.6               // m³/s
   const r = 0.3 * Math.pow(Math.max(q, 0.01), 0.3)
   return Math.min(4, Math.max(0.05, (Math.pow(r, 2 / 3) * Math.sqrt(s)) / 0.04))
 }
@@ -166,8 +169,9 @@ export function analysePath(path: TracedPath, ix: Indexes, specificRunoff: numbe
     const a = Math.max(0, i - WIN)
     const b = Math.min(n - 1, i + WIN)
     const run = path.dist[b] - path.dist[a]
-    const slope = run > 0
-      ? Math.max(3e-5, (path.elev[a] - path.elev[b]) / run)
+    const drop = path.elev[a] - path.elev[b]
+    const slope = run > 0 && Number.isFinite(drop)
+      ? Math.max(3e-5, drop / run)
       : 3e-5
     const v = velocity(path.area[i], slope, specificRunoff)
     seconds += d / v

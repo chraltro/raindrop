@@ -49,7 +49,7 @@ interface State {
   init(base: string): Promise<void>
   setTheme(t: Theme): void
   set<K extends keyof State>(k: K, v: State[K]): void
-  dropAt(lon: number, lat: number, snap?: boolean): Promise<void>
+  dropAt(lon: number, lat: number, snap?: number | boolean): Promise<void>
   exploreUpstream(lon: number, lat: number): Promise<void>
   loadWatershed(lon: number, lat: number): Promise<void>
   makeRain(seeds: [number, number][]): Promise<void>
@@ -110,7 +110,7 @@ export const useStore = create<State>((set, get) => ({
   setTheme(theme) { set({ theme }) },
   set(k, v) { set({ [k]: v } as Pick<State, typeof k>) },
 
-  async dropAt(lon, lat, snap = false) {
+  async dropAt(lon, lat, snap = 0) {
     const { client } = get()
     if (!client) return
     set({ loading: 'Following the drop…', playing: false, progress: 0, upstream: null, rainPaths: null })
@@ -120,7 +120,10 @@ export const useStore = create<State>((set, get) => ({
         client.probe(lon, lat),
       ])
       set({ trace, probe, loading: null, playing: true, progress: 0,
-             panelOpen: true, railOpen: false, mode: 'drop' })
+             panelOpen: true, railOpen: false, mode: 'drop',
+             error: trace.path.truncated
+               ? 'Part of the map could not be loaded, so this route stops early.'
+               : null })
       if (get().showWatershed) void get().loadWatershed(lon, lat)
     } catch (e) {
       set({ error: String((e as Error).message ?? e), loading: null })
