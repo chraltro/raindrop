@@ -436,9 +436,16 @@ export function MapCanvas() {
       if (path.lat[i] > n) n = path.lat[i]
     }
     const phone = isCompact()
+    // The sheet and the timeline cover the bottom of a phone screen; framing
+    // the route without accounting for them hid the last few kilometres —
+    // which is exactly the part that reaches the sea.
+    const st = useStore.getState()
+    const sheet = st.panelOpen ? (st.panelFull ? 0.82 : 0.44) : 0
+    const h = window.innerHeight
+    const bottom = Math.round(Math.min(h * 0.56, h * sheet + 76))
     map.fitBounds([[w, s0], [e, n]], {
       padding: phone
-        ? { top: 90, bottom: Math.round(window.innerHeight * 0.5), left: 24, right: 24 }
+        ? { top: 90, bottom, left: 24, right: 24 }
         : { top: 90, bottom: 110, left: 420, right: 280 },
       duration: 1100,
       maxZoom: 11,
@@ -489,9 +496,9 @@ export function MapCanvas() {
     // journey is drawn in deep blue instead.
     const pale = st.basemapOnline && (st.theme === 'relief' || st.theme === 'light')
     const c: Record<string, [number, number, number, number]> = pale
-      ? { ghost: [12, 95, 208, 70], trail: [12, 95, 208, 255], glow: [30, 120, 220, 55],
+      ? { ghost: [12, 95, 208, 150], trail: [12, 95, 208, 255], glow: [30, 120, 220, 55],
           ring: [10, 80, 190, 255], trib: [214, 110, 10, 235], origin: [16, 34, 47, 235] }
-      : { ghost: [120, 200, 255, 55], trail: [140, 230, 255, 255], glow: [90, 200, 255, 60],
+      : { ghost: [150, 215, 255, 165], trail: [140, 230, 255, 255], glow: [90, 200, 255, 60],
           ring: [120, 220, 255, 255], trib: [255, 205, 120, 210], origin: [255, 255, 255, 220] }
 
     if (overlayImage.current && ov) {
@@ -516,9 +523,9 @@ export function MapCanvas() {
         data: routeData.current,
         getPath: (d: { path: [number, number][] }) => d.path,
         getColor: c.ghost,
-        getWidth: 3,
+        getWidth: 4,
         widthUnits: 'pixels',
-        widthMinPixels: 1.5,
+        widthMinPixels: 2.5,
         capRounded: true,
         jointRounded: true,
       }))
@@ -612,9 +619,16 @@ export function MapCanvas() {
     }
 
     if (st.probe) {
+      // The click lands anywhere inside a ~400 m flow cell but the route can
+      // only start at that cell's centre, so the ring marks where the journey
+      // actually begins rather than where the finger was.
+      const p0 = st.trace?.path
+      const origin = p0?.lon.length
+        ? { lon: p0.lon[0], lat: p0.lat[0] }
+        : st.probe
       layers.push(new ScatterplotLayer({
         id: 'origin',
-        data: [st.probe],
+        data: [origin],
         getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
         getRadius: 6,
         radiusUnits: 'pixels',

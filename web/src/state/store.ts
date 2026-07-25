@@ -189,3 +189,9 @@ export const useStore = create<State>((set, get) => ({
     })
   },
 }))
+
+// The map is already on the window for the search fly-to; the store joins it so
+// the running app can be inspected and driven from the console or a test.
+if (typeof window !== 'undefined') {
+  (window as unknown as { __store: unknown }).__store = useStore
+}

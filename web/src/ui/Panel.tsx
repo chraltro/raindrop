@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo } from 'react'
 import { useStore } from '../state/store'
+import type { TraceResult, UpstreamResult } from '../engine/client'
 import { useIsPhone, useMedia } from './useMedia'
 import { Climate } from '../engine/climate'
 import { ElevationProfile, Hydrograph, ShareBar } from './charts'
@@ -38,9 +39,13 @@ export function Panel() {
         </div>
       ) : null}
       <AnimatePresence mode="wait">
+        {/* The result is passed in rather than read from the store: while
+            AnimatePresence plays the exit animation the old view is still
+            mounted, and by then the store has already been cleared. Reading it
+            there threw and took the whole UI down. */}
         {s.mode === 'compare' ? <CompareView key="cmp" />
-          : s.mode === 'upstream' && s.upstream ? <UpstreamView key="up" />
-          : s.trace ? <JourneyView key="jn" />
+          : s.mode === 'upstream' && s.upstream ? <UpstreamView key="up" up={s.upstream} />
+          : s.trace ? <JourneyView key="jn" trace={s.trace} />
           : <EmptyView key="mt" />}
       </AnimatePresence>
     </motion.aside>
@@ -85,11 +90,11 @@ function EmptyView() {
   )
 }
 
-function JourneyView() {
-  const { trace, probe, progress, month, watershed } = useStore()
-  const st = trace!.stats
-  const basin = trace!.basin
-  const start = trace!.start
+function JourneyView({ trace }: { trace: TraceResult }) {
+  const { probe, progress, month, watershed } = useStore()
+  const st = trace.stats
+  const basin = trace.basin
+  const start = trace.start
   const climate = start.climate
   const seasons = useMemo(() => (climate ? Climate.seasons(climate) : null), [climate])
   const facts = lookupFacts(basin?.river ?? st.steps.find((x) => x.name)?.name)
@@ -257,9 +262,7 @@ function Journey({ steps, doneAt }: { steps: ReturnType<typeof Object>[] | any[]
   )
 }
 
-function UpstreamView() {
-  const { upstream } = useStore()
-  const up = upstream!
+function UpstreamView({ up }: { up: UpstreamResult }) {
   const named = useMemo(() => {
     const m = new Map<string, number>()
     up.names.forEach((n, i) => {
