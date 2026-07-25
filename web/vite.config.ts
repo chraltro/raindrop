@@ -10,6 +10,12 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // A cached bundle that outlives its data is worse than no offline mode:
+      // renaming a data file leaves old clients fetching 404s with every
+      // button dead. This ships a service worker that unregisters itself and
+      // clears its caches; offline support can come back once the data
+      // filenames are stable and versioned.
+      selfDestroying: true,
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       workbox: {
