@@ -1,0 +1,14 @@
+services:
+  site:
+    build:
+      context: .
+      target: site
+    ports: ['8080:80']
+
+  api:
+    build:
+      context: .
+      target: api
+    ports: ['8000:8000']
+    environment:
+      - PYTHONUNBUFFERED=1

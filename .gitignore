@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Pipeline scratch: source tiles and intermediate rasters are re-downloadable
+data/raw/
+data/work/
+
+# Node
+node_modules/
+web/dist/
+web/dev-dist/
+*.log
