@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from '../state/store'
+import { useIsPhone } from './useMedia'
 import { REPO_URL } from '../config'
 
 const SUGGESTIONS: [string, number, number][] = [
@@ -15,8 +16,10 @@ const SUGGESTIONS: [string, number, number][] = [
 export function Intro() {
   const ready = useStore((s) => s.ready)
   const dropAt = useStore((s) => s.dropAt)
+  const phone = useIsPhone()
   const [dismissed, setDismissed] = useState(false)
   const open = !dismissed
+  const picks = phone ? SUGGESTIONS.slice(0, 4) : SUGGESTIONS
 
   return (
     <AnimatePresence>
@@ -25,6 +28,8 @@ export function Intro() {
           exit={{ opacity: 0 }}>
           <motion.div className="intro glass" initial={{ scale: 0.96, y: 12 }}
             animate={{ scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 200, damping: 24 }}>
+            <button className="iconbtn intro-close" aria-label="Close"
+              onClick={() => setDismissed(true)}>✕</button>
             <svg viewBox="0 0 64 64" width="52" height="52" aria-hidden>
               <defs>
                 <linearGradient id="d2" x1="0" y1="0" x2="0" y2="1">
@@ -41,7 +46,7 @@ export function Intro() {
               descent along the way.
             </p>
             <div className="cta">
-              {SUGGESTIONS.map(([label, lon, lat]) => (
+              {picks.map(([label, lon, lat]) => (
                 <button key={label} className="btn" disabled={!ready}
                   onClick={() => { setDismissed(true); void dropAt(lon, lat) }}>
                   {label}

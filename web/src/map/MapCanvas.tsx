@@ -7,8 +7,16 @@ import { useStore } from '../state/store'
 import { buildStyle, AWS_TERRAIN } from './styles'
 import { Overlays } from './overlays'
 import { DATA_URL } from '../config'
+import { isCompact } from '../ui/useMedia'
 
 const START_VIEW = { center: [10.5, 50.2] as [number, number], zoom: 4.1, pitch: 0, bearing: 0 }
+
+/** Small screens and metered connections wait longer for the 13 MB detail layer. */
+function detailZoom(): number {
+  const conn = (navigator as unknown as { connection?: { saveData?: boolean } }).connection
+  if (conn?.saveData) return 99
+  return isCompact() ? 9 : 7.6
+}
 
 /** Animation duration in seconds for a path of the given length. */
 const durationFor = (metres: number) => Math.min(95, Math.max(11, 9 + metres / 55000))
@@ -20,6 +28,9 @@ export function MapCanvas() {
   const overlaysRef = useRef<Overlays | null>(null)
   const raf = useRef(0)
   const anim = useRef({ t0: 0, duration: 20, playing: false, progress: 0, speed: 1 })
+  const dirty = useRef(true)
+  const camSkip = useRef(false)
+  const lastPush = useRef(0)
   const [styleReady, setStyleReady] = useState(false)
 
   const s = useStore()
@@ -38,8 +49,11 @@ export function MapCanvas() {
       minZoom: 2.6,
       attributionControl: false,
       hash: false,
-      dragRotate: true,
+      dragRotate: !isCompact(),
+      pitchWithRotate: !isCompact(),
+      maxPitch: isCompact() ? 60 : 75,
     })
+    if (isCompact()) map.touchZoomRotate.disableRotation()
     mapRef.current = map
     map.addControl(new AttributionControl({ compact: true }), 'bottom-right')
     map.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right')
@@ -49,6 +63,9 @@ export function MapCanvas() {
     deckRef.current = deck
     map.addControl(deck as unknown as IControl)
 
+    // A phone repaints the entire map on every camera change, so the
+    // cinematic ride is opt-in there and the route is framed instead.
+    if (isCompact()) useStore.setState({ cinematic: false })
     map.on('load', () => {
       setStyleReady(true)
       const ov = new Overlays(DATA_URL, useStore.getState().client!.manifest!)
@@ -121,7 +138,7 @@ export function MapCanvas() {
     if (!map) return
     const src = map.getSource('rivers2') as GeoJSONSource | undefined
     if (!src || detailLoaded.current) return
-    if (map.getZoom() < 7.6) return
+    if (map.getZoom() < detailZoom()) return
     detailLoaded.current = true
     fetch(`${DATA_URL}/rivers-lod2.geojson`)
       .then((r) => r.json())
@@ -139,7 +156,7 @@ export function MapCanvas() {
     const map = mapRef.current
     if (!map) return
     const onZoom = () => {
-      if (map.getZoom() >= 7.6) {
+      if (map.getZoom() >= detailZoom()) {
         if (detailData.current) {
           const src = map.getSource('rivers2') as GeoJSONSource | undefined
           const cur = src as unknown as { _data?: unknown }
@@ -200,11 +217,12 @@ export function MapCanvas() {
   useEffect(() => {
     const ov = overlaysRef.current
     if (!ov?.ready) return
-    if (s.overlay === 'none') { overlayImage.current = null; render(); return }
+    if (s.overlay === 'none') { overlayImage.current = null; dirty.current = true; render(); return }
     const key = `${s.overlay}:${s.seasonal ? s.month : 'y'}`
     if (overlayImage.current?.key === key) return
-    const data = ov.render(s.overlay, s.month, s.seasonal)
+    const data = ov.render(s.overlay, s.month, s.seasonal, isCompact() ? 2 : 1)
     overlayImage.current = data ? { data, key } : null
+    dirty.current = true
     render()
   }, [s.overlay, s.month, s.seasonal, overlaysRef.current?.ready])
 
@@ -297,6 +315,7 @@ export function MapCanvas() {
   useEffect(() => {
     const path = s.trace?.path
     if (!path) { anim.current.playing = false; return }
+    if (!useStore.getState().cinematic) fitRoute(path)
     anim.current.duration = durationFor(path.dist[path.dist.length - 1])
     anim.current.t0 = performance.now()
     anim.current.progress = 0
@@ -308,30 +327,69 @@ export function MapCanvas() {
     if (s.playing) anim.current.t0 = performance.now() - anim.current.progress * anim.current.duration * 1000
   }, [s.playing])
 
+  // The frame loop only touches deck.gl when the scene actually changed.
+  // Re-uploading layers 60 times a second while nothing moves is what made
+  // phones crawl.
   useEffect(() => {
-    const loop = () => {
+    const tick = () => {
       const a = anim.current
       if (a.playing) {
-        const loop = !!useStore.getState().rainPaths
+        const looping = !!useStore.getState().rainPaths
         const raw = (performance.now() - a.t0) / (a.duration * 1000)
-        const p = loop ? raw % 1 : Math.min(1, raw)
+        const p = looping ? raw % 1 : Math.min(1, raw)
         a.progress = p
-        if (!loop && raw >= 1) { a.playing = false; useStore.setState({ playing: false }) }
-        if (Math.abs(p - useStore.getState().progress) > 0.004)
+        if (!looping && raw >= 1) { a.playing = false; useStore.setState({ playing: false }) }
+        // The panel, the profile chart and the timeline only need ~10 Hz.
+        // Pushing progress into the store every frame re-rendered the whole
+        // journey list sixty times a second.
+        const now = performance.now()
+        if (now - lastPush.current > 100 && Math.abs(p - useStore.getState().progress) > 0.004) {
+          lastPush.current = now
           useStore.setState({ progress: p })
+        }
         follow(p)
+        dirty.current = true
       }
-      render()
-      raf.current = requestAnimationFrame(loop)
+      if (dirty.current) {
+        dirty.current = false
+        render()
+      }
+      raf.current = requestAnimationFrame(tick)
     }
-    raf.current = requestAnimationFrame(loop)
+    raf.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf.current)
   }, [])
 
   // scrubbing from the UI
   useEffect(() => {
     if (!anim.current.playing) anim.current.progress = s.progress
+    dirty.current = true
   }, [s.progress])
+
+  useEffect(() => { dirty.current = true },
+    [s.trace, s.upstream, s.rainPaths, s.probe, s.overlay, s.month, s.seasonal, s.theme])
+
+  /** Frame the whole journey — the default view when not riding the drop. */
+  const fitRoute = (path: { lon: Float64Array; lat: Float64Array }) => {
+    const map = mapRef.current
+    if (!map || !path.lon.length) return
+    let w = 180, e = -180, s0 = 90, n = -90
+    const step = Math.max(1, Math.floor(path.lon.length / 400))
+    for (let i = 0; i < path.lon.length; i += step) {
+      if (path.lon[i] < w) w = path.lon[i]
+      if (path.lon[i] > e) e = path.lon[i]
+      if (path.lat[i] < s0) s0 = path.lat[i]
+      if (path.lat[i] > n) n = path.lat[i]
+    }
+    const phone = isCompact()
+    map.fitBounds([[w, s0], [e, n]], {
+      padding: phone
+        ? { top: 90, bottom: Math.round(window.innerHeight * 0.5), left: 24, right: 24 }
+        : { top: 90, bottom: 110, left: 420, right: 280 },
+      duration: 1100,
+      maxZoom: 11,
+    })
+  }
 
   const follow = (p: number) => {
     const map = mapRef.current
@@ -349,12 +407,20 @@ export function MapCanvas() {
     const ahead = Math.min(n - 1, i + Math.max(3, Math.floor(n / 120)))
     const bearing = bearingBetween(path.lon[i], path.lat[i], path.lon[ahead], path.lat[ahead])
     const area = path.area[i]
-    const zoom = Math.max(6.2, Math.min(11.6, 11.9 - Math.log10(Math.max(area, 0.2)) * 0.95))
+    const small = isCompact()
+    const zoom = Math.max(small ? 5.6 : 6.2, Math.min(small ? 10.4 : 11.6,
+      (small ? 11.1 : 11.9) - Math.log10(Math.max(area, 0.2)) * 0.95))
+    // a phone repaints the whole map on every camera change, so move it at
+    // half the rate and keep the pitch shallow
+    if (small) {
+      camSkip.current = !camSkip.current
+      if (camSkip.current) return
+    }
     map.jumpTo({
       center: [lon, lat],
-      zoom: map.getZoom() + (zoom - map.getZoom()) * 0.03,
-      bearing: map.getBearing() + shortestAngle(map.getBearing(), bearing) * 0.05,
-      pitch: st.terrain3d ? 62 : 48,
+      zoom: map.getZoom() + (zoom - map.getZoom()) * (small ? 0.06 : 0.03),
+      bearing: map.getBearing() + shortestAngle(map.getBearing(), bearing) * (small ? 0.09 : 0.05),
+      pitch: st.terrain3d ? 62 : small ? 0 : 48,
     })
   }
 

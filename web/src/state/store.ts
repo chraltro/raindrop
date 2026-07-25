@@ -30,6 +30,8 @@ interface State {
   mode: Mode
   cinematic: boolean
   panelOpen: boolean
+  panelFull: boolean
+  railOpen: boolean
   educational: boolean
 
   trace: TraceResult | null
@@ -71,7 +73,10 @@ export const useStore = create<State>((set, get) => ({
   year: 2025,
   mode: 'drop',
   cinematic: true,
-  panelOpen: true,
+  panelOpen: typeof window === 'undefined' ||
+    !window.matchMedia('(max-width: 780px), (max-height: 520px)').matches,
+  panelFull: false,
+  railOpen: false,
   educational: false,
 
   trace: null,
@@ -110,7 +115,8 @@ export const useStore = create<State>((set, get) => ({
         client.trace(lon, lat, snap),
         client.probe(lon, lat),
       ])
-      set({ trace, probe, loading: null, playing: true, progress: 0, panelOpen: true, mode: 'drop' })
+      set({ trace, probe, loading: null, playing: true, progress: 0,
+             panelOpen: true, railOpen: false, mode: 'drop' })
       if (get().showWatershed) void get().loadWatershed(lon, lat)
     } catch (e) {
       set({ error: String((e as Error).message ?? e), loading: null })
@@ -123,7 +129,8 @@ export const useStore = create<State>((set, get) => ({
     set({ loading: 'Climbing upstream…', mode: 'upstream' })
     try {
       const upstream = await client.upstream(lon, lat, true)
-      set({ upstream, loading: null, playing: true, progress: 0, panelOpen: true })
+      set({ upstream, loading: null, playing: true, progress: 0,
+             panelOpen: true, railOpen: false })
     } catch (e) {
       set({ error: String((e as Error).message ?? e), loading: null })
     }
@@ -163,7 +170,7 @@ export const useStore = create<State>((set, get) => ({
       const tr = await client.trace(lon, lat, true)
       const next: [CompareSlot, CompareSlot] = [...compare] as [CompareSlot, CompareSlot]
       next[slot] = { ...next[slot], basin: tr.basin, watershed: ws }
-      set({ compare: next, loading: null, panelOpen: true })
+      set({ compare: next, loading: null, panelOpen: true, railOpen: false })
     } catch (e) {
       set({ error: String((e as Error).message ?? e), loading: null })
     }

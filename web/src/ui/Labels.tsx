@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Map as MapLibreMap } from 'maplibre-gl'
 import { DATA_URL } from '../config'
 import { useStore } from '../state/store'
+import { useIsPhone } from './useMedia'
 
 interface Entry { n: string; k: string; c: [number, number]; r: number; p?: number; a?: number }
 
@@ -23,6 +24,7 @@ export function Labels() {
   const raf = useRef(0)
   const theme = useStore((s) => s.theme)
   const panelOpen = useStore((s) => s.panelOpen)
+  const phone = useIsPhone()
 
   useEffect(() => {
     fetch(`${DATA_URL}/search.json`).then((r) => r.json()).then(setIndex).catch(() => {})
@@ -46,20 +48,31 @@ export function Labels() {
   }, [index, seas])
 
   useEffect(() => {
+    let last = ''
     const tick = () => {
       const map = (window as unknown as { __map?: MapLibreMap }).__map
       if (map && pool.length) {
         const z = map.getZoom()
+        const c = map.getCenter()
+        // Placing labels means projecting hundreds of points; only redo it
+        // when the view actually moved.
+        const sig = `${z.toFixed(2)}|${c.lng.toFixed(3)}|${c.lat.toFixed(3)}|${map.getBearing().toFixed(0)}|${panelOpen}`
+        if (sig === last) {
+          raf.current = window.setTimeout(() => requestAnimationFrame(tick), phone ? 320 : 200)
+          return
+        }
+        last = sig
         const w = map.getContainer().clientWidth
         const h = map.getContainer().clientHeight
-        const wide = w > 780
-        const left = wide && panelOpen ? 418 : 12
-        const right = wide ? 262 : 12
+        const wide = !phone
+        const left = wide && panelOpen ? 418 : 10
+        const right = wide ? 262 : 10
+        const maxLabels = phone ? 22 : 62
         const taken: [number, number, number, number][] = []
         const out: { n: string; k: string; x: number; y: number }[] = []
         for (const e of pool) {
           if (!e?.n) continue
-          if (out.length > 62) break
+          if (out.length > maxLabels) break
           if (e.k === 'sea') {
             // Natural Earth scaleranks: only the great seas at low zoom
             if (z < 2.2 + e.r * 0.75) continue
@@ -68,7 +81,7 @@ export function Labels() {
           if (e.k === 'river' && z < 3.8 + e.r * 0.8) continue
           const p = map.project(e.c)
           // keep clear of the panel on the left and the control rail on the right
-          if (p.x < left || p.y < 62 || p.x > w - right || p.y > h - 70) continue
+          if (p.x < left || p.y < (phone ? 66 : 62) || p.x > w - right || p.y > h - (phone ? 120 : 70)) continue
           const tw = e.n.length * (e.k === 'sea' ? 7.4 : 5.6) + 14
           const box: [number, number, number, number] = [p.x - tw / 2, p.y - 9, p.x + tw / 2, p.y + 9]
           if (box[0] < left || box[2] > w - right) continue
@@ -78,11 +91,11 @@ export function Labels() {
         }
         setPlaced(out)
       }
-      raf.current = window.setTimeout(() => requestAnimationFrame(tick), 180)
+      raf.current = window.setTimeout(() => requestAnimationFrame(tick), phone ? 320 : 200)
     }
     tick()
     return () => clearTimeout(raf.current)
-  }, [pool, panelOpen])
+  }, [pool, panelOpen, phone])
 
   return (
     <div className="labels" data-theme={theme}>

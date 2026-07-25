@@ -25,6 +25,7 @@ export function SearchBox() {
   const [sel, setSel] = useState(0)
   const [focus, setFocus] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const dropAt = useStore((s) => s.dropAt)
 
   useEffect(() => {
@@ -55,11 +56,12 @@ export function SearchBox() {
   }, [q, index])
 
   useEffect(() => {
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: Event) => {
       if (!box.current?.contains(e.target as Node)) setFocus(false)
     }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    // pointerdown also covers touch, where mousedown can be delayed or lost
+    document.addEventListener('pointerdown', onDown)
+    return () => document.removeEventListener('pointerdown', onDown)
   }, [])
 
   const go = (e: Entry) => {
@@ -68,6 +70,7 @@ export function SearchBox() {
     map?.flyTo({ center: e.c, zoom, duration: 1800, essential: true })
     setQ('')
     setFocus(false)
+    inputRef.current?.blur()      // let the on-screen keyboard go away
     if (e.k === 'river' || e.k === 'basin') {
       setTimeout(() => void dropAt(e.c[0], e.c[1], true), 1900)
     }
@@ -81,6 +84,7 @@ export function SearchBox() {
         </svg>
       </span>
       <input
+        ref={inputRef}
         value={q}
         placeholder="Search a river, town, lake, peak or 48.14, 11.58"
         onFocus={() => setFocus(true)}

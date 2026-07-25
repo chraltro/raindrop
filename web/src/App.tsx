@@ -10,8 +10,10 @@ import { Intro } from './ui/Intro'
 import { useStore } from './state/store'
 import { DATA_URL } from './config'
 import { readHash, writeHash } from './state/hash'
+import { useIsPhone } from './ui/useMedia'
 
 export function App() {
+  const phone = useIsPhone()
   const ready = useStore((s) => s.ready)
   const loading = useStore((s) => s.loading)
   const error = useStore((s) => s.error)
@@ -43,11 +45,12 @@ export function App() {
         <div className="topbar">
           <Brand />
           <SearchBox />
-          <div className="spacer" />
+          {phone ? <ControlsButton /> : <div className="spacer" />}
         </div>
         <Panel />
         <Rail />
         <Timeline />
+        {phone ? <ReopenPanel /> : null}
         <AnimatePresence>
           {(loading || error) && (
             <motion.div
@@ -63,6 +66,34 @@ export function App() {
       </div>
       <Intro />
     </>
+  )
+}
+
+function ControlsButton() {
+  const railOpen = useStore((s) => s.railOpen)
+  const set = useStore((s) => s.set)
+  return (
+    <button className={`btn fab glass ${railOpen ? 'active' : ''}`}
+      aria-label="Map controls" aria-expanded={railOpen}
+      onClick={() => set('railOpen', !railOpen)}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 13 9 5 9-5" />
+      </svg>
+    </button>
+  )
+}
+
+/** When the sheet is dismissed, one tap brings the current journey back. */
+function ReopenPanel() {
+  const panelOpen = useStore((s) => s.panelOpen)
+  const hasResult = useStore((s) => Boolean(s.trace || s.upstream || s.compare[0].basin))
+  const set = useStore((s) => s.set)
+  if (panelOpen || !hasResult) return null
+  return (
+    <button className="btn glass reopen" onClick={() => set('panelOpen', true)}>
+      Show the journey
+    </button>
   )
 }
 

@@ -111,28 +111,35 @@ export class Overlays {
     }
   }
 
-  /** Colour-mapped RGBA image for the requested overlay. */
-  render(kind: Overlay, month: number, seasonal: boolean): ImageData | null {
+  /**
+   * Colour-mapped RGBA image for the requested overlay.
+   *
+   * `step` > 1 samples every nth source pixel, which keeps a 3.4 M pixel
+   * recolour off a phone's main thread for seconds at a time.
+   */
+  render(kind: Overlay, month: number, seasonal: boolean, step = 1): ImageData | null {
     if (!this.ready || kind === 'none') return null
-    const w = this.precip!.width
-    const h = this.precip!.height
+    const sw = this.precip!.width
+    const w = Math.floor(sw / step)
+    const h = Math.floor(this.precip!.height / step)
     const out = new ImageData(w, h)
     const o = out.data
     const elev = this.elev!.data
     const acc = this.flowacc!.data
 
-    for (let i = 0, px = 0; px < w * h; px++, i += 4) {
+    for (let px = 0, o4 = 0; px < w * h; px++, o4 += 4) {
+      const sx = (px % w) * step
+      const sy = ((px / w) | 0) * step
+      const i = (sy * sw + sx) * 4
       const e = ((elev[i] << 8) | elev[i + 1]) - this.m.overviewElevOffset
       let rgb: [number, number, number] = [0, 0, 0]
       let alpha = 205
 
       if (kind === 'elevation' || kind === 'slope') {
         if (kind === 'slope') {
-          const x = px % w
-          const y = (px / w) | 0
-          const gx = this.elevAtPx(Math.min(w - 1, x + 1), y) - this.elevAtPx(Math.max(0, x - 1), y)
-          const gy = this.elevAtPx(x, Math.min(h - 1, y + 1)) - this.elevAtPx(x, Math.max(0, y - 1))
-          const cell = (40075016.686 / (256 * (1 << this.m.zoom))) * this.m.overviewFactor
+          const gx = this.elevAtPx(sx + step, sy) - this.elevAtPx(Math.max(0, sx - step), sy)
+          const gy = this.elevAtPx(sx, sy + step) - this.elevAtPx(sx, Math.max(0, sy - step))
+          const cell = (40075016.686 / (256 * (1 << this.m.zoom))) * this.m.overviewFactor * step
           const s = Math.atan(Math.hypot(gx, gy) / (2 * cell)) * (180 / Math.PI)
           const t = Math.min(1, s / 32)
           rgb = [30 + 225 * t, 200 - 150 * t, 255 - 200 * t]
@@ -143,13 +150,13 @@ export class Overlays {
         }
       } else if (kind === 'flowacc') {
         const a = decodeArea(acc[i], this.m.accScale)
-        if (a < 3 || e < -20) { o[i + 3] = 0; continue }
+        if (a < 3 || e < -20) { o[o4 + 3] = 0; continue }
         const t = Math.min(1, Math.log10(a) / 6)
         rgb = [40 + 60 * t, 150 + 90 * t, 220 + 35 * t]
         alpha = 60 + 195 * Math.min(1, Math.log10(a) / 3.2)
       } else {
         const c = this.sampleAt(i)
-        if (e < -20) { o[i + 3] = 0; continue }
+        if (e < -20) { o[o4 + 3] = 0; continue }
         if (kind === 'precip') {
           const v = seasonal
             ? c.precip * (1 / 12) * (1 + c.seasonAmp * Math.cos((2 * Math.PI * (month - c.seasonPhase)) / 12)) * 12
@@ -160,21 +167,23 @@ export class Overlays {
         } else {
           const s = Climate.seasons(c)
           const pack = s.snowpack[month]
-          if (pack < 2) { o[i + 3] = 0; continue }
+          if (pack < 2) { o[o4 + 3] = 0; continue }
           rgb = rampAt(RAMP_SNOW, pack)
           alpha = Math.min(235, 60 + pack)
         }
       }
-      o[i] = rgb[0]
-      o[i + 1] = rgb[1]
-      o[i + 2] = rgb[2]
-      o[i + 3] = alpha
+      o[o4] = rgb[0]
+      o[o4 + 1] = rgb[1]
+      o[o4 + 2] = rgb[2]
+      o[o4 + 3] = alpha
     }
     return out
   }
 
   private elevAtPx(x: number, y: number): number {
-    const i = (y * this.precip!.width + x) * 4
+    const cx = Math.min(this.precip!.width - 1, x)
+    const cy = Math.min(this.precip!.height - 1, y)
+    const i = (cy * this.precip!.width + cx) * 4
     const d = this.elev!.data
     return ((d[i] << 8) | d[i + 1]) - this.m.overviewElevOffset
   }

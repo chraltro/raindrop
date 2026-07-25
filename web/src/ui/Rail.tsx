@@ -6,6 +6,7 @@ import type { Theme } from '../map/styles'
 import { MONTHS } from '../engine/climate'
 import { HISTORY, KIND_COLOR } from '../data/history'
 import { shareUrl } from '../state/hash'
+import { useIsPhone } from './useMedia'
 
 const MODES: { id: Mode; label: string; hint: string }[] = [
   { id: 'drop', label: 'Drop', hint: 'Click anywhere: follow one raindrop to the sea' },
@@ -33,7 +34,9 @@ const OVERLAYS: { id: Overlay; label: string }[] = [
 
 export function Rail() {
   const s = useStore()
+  const phone = useIsPhone()
   const [open, setOpen] = useState<string | null>('mode')
+  if (phone && !s.railOpen) return null
   const card = (id: string, title: string, body: React.ReactNode) => (
     <motion.div layout className="card glass" key={id}>
       <h4 style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
@@ -45,7 +48,23 @@ export function Rail() {
   )
 
   return (
-    <div className="rail">
+    <>
+      {phone ? (
+        <button className="backdrop" aria-label="Close controls"
+          onClick={() => s.set('railOpen', false)} />
+      ) : null}
+      <motion.div className="rail"
+        initial={phone ? { y: 60, opacity: 0 } : false}
+        animate={phone ? { y: 0, opacity: 1 } : {}}
+        transition={{ type: 'spring', stiffness: 260, damping: 30 }}>
+      {phone ? (
+        <div className="sheet-head">
+          <span className="grabber" />
+          <span className="title">Map controls</span>
+          <button className="iconbtn" aria-label="Close controls"
+            onClick={() => s.set('railOpen', false)}>✕</button>
+        </div>
+      ) : null}
       {card('mode', 'Mode', (
         <>
           <div className="rowbtns">
@@ -168,7 +187,8 @@ export function Rail() {
           </p>
         </>
       ))}
-    </div>
+      </motion.div>
+    </>
   )
 }
 

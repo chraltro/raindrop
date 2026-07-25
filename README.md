@@ -32,7 +32,11 @@ static tiles, and the routing happens in a Web Worker on the visitor's machine.
 | **Search** | Rivers, towns, lakes, peaks, basins or raw coordinates — offline, from a bundled index. |
 | **Share** | The URL carries the drop location, theme and overlay. Copy the link, send the journey. |
 
-Installable as a PWA; the interface adapts to phones.
+Installable as a PWA. On phones and in landscape the interface becomes sheets:
+a compact top bar, a bottom sheet for the journey that expands, collapses and
+closes, and a controls sheet behind one button — nothing sits permanently on
+top of the map. The cinematic ride is opt-in there; by default a tap frames the
+whole route, which keeps the map still and the frame rate high.
 
 ---
 

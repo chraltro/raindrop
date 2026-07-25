@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo } from 'react'
 import { useStore } from '../state/store'
+import { useIsPhone, useMedia } from './useMedia'
 import { Climate } from '../engine/climate'
 import { ElevationProfile, Hydrograph, ShareBar } from './charts'
 import { RIVER_FACTS, lookupFacts } from '../data/facts'
@@ -8,11 +9,34 @@ import * as f from './format'
 
 export function Panel() {
   const s = useStore()
+  const phone = useIsPhone()
+  const bottomSheet = useMedia('(max-width: 780px)')
   if (!s.panelOpen) return null
+  const sheetH = bottomSheet ? (s.panelFull ? '82vh' : '44vh') : undefined
 
   return (
-    <motion.aside className="panel glass" initial={{ opacity: 0, x: -18 }}
-      animate={{ opacity: 1, x: 0 }} transition={{ type: 'spring', stiffness: 210, damping: 26 }}>
+    <motion.aside
+      className="panel glass"
+      style={sheetH ? ({ ['--sheet-h' as string]: sheetH, maxHeight: sheetH }) : undefined}
+      initial={phone ? { opacity: 0, y: 40 } : { opacity: 0, x: -18 }}
+      animate={phone ? { opacity: 1, y: 0 } : { opacity: 1, x: 0 }}
+      transition={{ type: 'spring', stiffness: 240, damping: 28 }}
+    >
+      {phone ? (
+        <div className="sheet-head">
+          {bottomSheet ? (
+            <button className="grabber" aria-label={s.panelFull ? 'Collapse' : 'Expand'}
+              onClick={() => s.set('panelFull', !s.panelFull)} />
+          ) : null}
+          <span className="title">Journey</span>
+          {bottomSheet ? (
+            <button className="iconbtn" aria-label={s.panelFull ? 'Collapse panel' : 'Expand panel'}
+              onClick={() => s.set('panelFull', !s.panelFull)}>{s.panelFull ? '▾' : '▴'}</button>
+          ) : null}
+          <button className="iconbtn" aria-label="Close panel"
+            onClick={() => s.set('panelOpen', false)}>✕</button>
+        </div>
+      ) : null}
       <AnimatePresence mode="wait">
         {s.mode === 'compare' ? <CompareView key="cmp" />
           : s.mode === 'upstream' && s.upstream ? <UpstreamView key="up" />
