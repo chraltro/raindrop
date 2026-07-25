@@ -29,7 +29,7 @@ static tiles, and the routing happens in a Web Worker on the visitor's machine.
 | **Overlays** | Rainfall, snowpack, runoff, stream network, elevation, slope — all recoloured in the browser, so the seasonal slider responds instantly. |
 | **Season** | January → December: snow accumulating and melting, the discharge hydrograph, frozen months. |
 | **Time travel** | 1600 → today: dated river straightenings, canals, reservoirs, drainage schemes, dam removals and disasters. |
-| **Search** | Rivers, towns, lakes, peaks, basins or raw coordinates — offline, from a bundled index. |
+| **Search** | ~79,000 towns and villages, every named river, lakes, peaks, basins or raw coordinates — all offline. |
 | **Share** | The URL carries the drop location, theme and overlay. Copy the link, send the journey. |
 
 Installable as a PWA. On phones and in landscape the interface becomes sheets:
@@ -68,7 +68,8 @@ published artefacts are:
 | `rivers-lod{0,1,2}.geojson` | the derived network split into reaches at every confluence, named against Natural Earth |
 | `basins.json` / `basins.geojson` | 1,896 catchments with area, relief, destination sea, country shares and modelled discharge |
 | `climate/*.png` | interpolated precipitation, temperature and runoff |
-| `search.json` | offline search index |
+| `search.json` | small label/quick-search index (2.5 k prominent entries) |
+| `gazetteer.json` | ~79 k towns and every named reach, fetched on first search |
 
 Rebuild it all with:
 
@@ -120,7 +121,17 @@ Danube deltas the drop picks *a* distributary, not necessarily the main one.
 
 **Names** come from Natural Earth centrelines matched to the derived network by
 proximity and drainage area. About 71 % of reaches above 1,500 km² get a name;
-the rest show a size class ("Small river", "Major river").
+the rest show a size class ("Small river", "Major river"). Natural Earth stops
+at fairly large rivers, so a local name like *Drammenselva* is not in the data —
+place names come from a much deeper gazetteer (~79,000 settlements), rivers do
+not. Fixing that needs an OpenStreetMap waterway extract.
+
+**Basemap resolution.** The shaded relief shipped with the app is rendered from
+the DEM up to zoom 7 (~1.2 km per tile pixel) and is stretched above that, so it
+softens as you zoom past regional scale. Hillshade from the public terrain-tile
+service adds real detail from zoom 6 upward when that service is reachable.
+Rendering relief at zoom 8 needs `export_relief` to work in horizontal bands —
+in one pass it allocates a 218-megapixel float image and gets killed.
 
 **Discharge, travel time and seasonality are models, not measurements**, and the
 app says so wherever it shows them:

@@ -20,6 +20,7 @@ let countryIx: PolygonIndex
 let lakeIx: PolygonIndex
 let basinByOutlet = new Map<string, any>()
 let basinById = new Map<number, any>()
+let indexes: Promise<void> = Promise.resolve()
 
 const post = (id: number, payload: unknown, transfer: Transferable[] = []) =>
   (self as unknown as Worker).postMessage({ id, payload }, transfer)
@@ -36,26 +37,29 @@ async function init(url: string) {
   engine = new FlowEngine(new TileCache(base, manifest), manifest)
   climate = new Climate(base, manifest)
 
-  const [rivers, countries, lakes, lakesEu, basins] = await Promise.all([
-    getJSON<{ features: Feat[] }>('rivers-lod1.geojson'),
-    getJSON<{ features: Feat[] }>('vector/countries.geojson'),
-    getJSON<{ features: Feat[] }>('vector/lakes.geojson'),
-    getJSON<{ features: Feat[] }>('vector/lakes_eu.geojson').catch(() => ({ features: [] })),
-    getJSON<any[]>('basins.json'),
-    climate.load(),
-  ])
-  riverIx = new LineIndex(rivers.features, 0.08)
-  countryIx = new PolygonIndex(countries.features, 1)
-  lakeIx = new PolygonIndex([...lakes.features, ...lakesEu.features], 0.5)
+  // Only the small, essential pieces block "ready" — the map becomes usable
+  // as soon as a drop can be routed. The naming indexes are several megabytes
+  // and load in the background; a trace waits for them only if one arrives
+  // first.
+  const [basins] = await Promise.all([getJSON<any[]>('basins.json'), climate.load()])
   for (const b of basins) {
     basinByOutlet.set(`${b.px},${b.py}`, b)
     basinById.set(b.id, b)
   }
-  return {
-    manifest,
-    basins: basins.length,
-    rivers: rivers.features.length,
-  }
+
+  indexes = (async () => {
+    const [rivers, countries, lakes, lakesEu] = await Promise.all([
+      getJSON<{ features: Feat[] }>('rivers-lod1.json'),
+      getJSON<{ features: Feat[] }>('vector/countries.json'),
+      getJSON<{ features: Feat[] }>('vector/lakes.json'),
+      getJSON<{ features: Feat[] }>('vector/lakes_eu.json').catch(() => ({ features: [] })),
+    ])
+    riverIx = new LineIndex(rivers.features, 0.08)
+    countryIx = new PolygonIndex(countries.features, 1)
+    lakeIx = new PolygonIndex([...lakes.features, ...lakesEu.features], 0.5)
+  })()
+
+  return { manifest, basins: basins.length }
 }
 
 function serialise(p: TracedPath) {
@@ -76,6 +80,7 @@ function specRunoffAt(lon: number, lat: number): number {
 }
 
 async function trace(lon: number, lat: number, snap = false) {
+  await indexes
   let [px, py] = engine.cellOf(lon, lat)
   await engine.prime(px, py, true)
   if (snap) {
@@ -117,6 +122,7 @@ async function watershed(lon: number, lat: number, snap: boolean) {
 }
 
 async function upstream(lon: number, lat: number, snap: boolean) {
+  await indexes
   let [px, py] = engine.cellOf(lon, lat)
   if (snap) {
     const s = await engine.snapToRiver(px, py, 10)
@@ -142,6 +148,7 @@ async function rain(seeds: [number, number][]) {
 }
 
 async function probe(lon: number, lat: number) {
+  await indexes
   const [px, py] = engine.cellOf(lon, lat)
   await engine.prime(px, py, true)
   const cls = engine.classAt(px, py)

@@ -22,6 +22,9 @@ const COORD_RE = /^\s*(-?\d+(?:\.\d+)?)\s*[°,\s]\s*(-?\d+(?:\.\d+)?)\s*$/
 export function SearchBox() {
   const [q, setQ] = useState('')
   const [index, setIndex] = useState<Entry[] | null>(null)
+  const [gaz, setGaz] = useState<Entry[] | null>(null)
+  const [gazLoading, setGazLoading] = useState(false)
+  const gazState = useRef(false)
   const [sel, setSel] = useState(0)
   const [focus, setFocus] = useState(false)
   const box = useRef<HTMLDivElement>(null)
@@ -31,6 +34,31 @@ export function SearchBox() {
   useEffect(() => {
     fetch(`${DATA_URL}/search.json`).then((r) => r.json()).then(setIndex).catch(() => setIndex([]))
   }, [])
+
+  /**
+   * The full gazetteer is ~80,000 places and 4 MB, so it is fetched the first
+   * time someone actually searches rather than on load.  Without it, anywhere
+   * smaller than a Natural Earth city — Holmestrand, say — was unfindable.
+   */
+  const loadGazetteer = () => {
+    if (gazState.current) return
+    gazState.current = true
+    setGazLoading(true)
+    fetch(`${DATA_URL}/gazetteer.json`)
+      .then((r) => r.json())
+      .then((g: { countries: Record<string, string>; entries: Entry[] }) => {
+        for (const e of g.entries) {
+          e.s = strip(e.n)
+          if (!e.k) e.k = 'place'
+          if (e.k === 'place') e.d = g.countries[e.d as string] ?? e.d
+          else if (e.k === 'river') e.d = `${(e.a ?? 0).toLocaleString()} km² upstream`
+          e.r = e.k === 'river' ? 3 : 6
+        }
+        setGaz(g.entries)
+      })
+      .catch(() => setGaz([]))
+      .finally(() => setGazLoading(false))
+  }
 
   const results = useMemo(() => {
     const term = strip(q.trim())
@@ -45,15 +73,32 @@ export function SearchBox() {
     }
     const starts: Entry[] = []
     const contains: Entry[] = []
-    for (const e of index) {
-      const i = e.s.indexOf(term)
-      if (i === 0) starts.push(e)
-      else if (i > 0) contains.push(e)
-      if (starts.length > 40) break
+    const scan = (list: Entry[], cap: number) => {
+      let n = 0
+      for (const e of list) {
+        if (!e.s) continue
+        const i = e.s.indexOf(term)
+        if (i === 0) { starts.push(e); n++ }
+        else if (i > 0 && term.length > 2) { contains.push(e); n++ }
+        if (n > cap) break
+      }
     }
-    const rank = (a: Entry, b: Entry) => a.r - b.r || (b.p ?? b.a ?? 0) - (a.p ?? a.a ?? 0)
-    return [...out, ...starts.sort(rank).slice(0, 8), ...contains.sort(rank).slice(0, 4)]
-  }, [q, index])
+    scan(index, 60)
+    if (gaz) scan(gaz, 400)
+    const rank = (a: Entry, b: Entry) =>
+      a.r - b.r ||
+      (b.p ?? b.a ?? 0) - (a.p ?? a.a ?? 0) ||
+      a.n.length - b.n.length
+    const seen = new Set<string>()
+    const dedupe = (list: Entry[]) => list.filter((e) => {
+      const k = `${e.n}|${e.c[0].toFixed(1)}|${e.c[1].toFixed(1)}`
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+    return [...out, ...dedupe(starts.sort(rank)).slice(0, 9),
+      ...dedupe(contains.sort(rank)).slice(0, 4)]
+  }, [q, index, gaz])
 
   useEffect(() => {
     const onDown = (e: Event) => {
@@ -66,7 +111,7 @@ export function SearchBox() {
 
   const go = (e: Entry) => {
     const map = (window as unknown as { __map?: MapLibreMap }).__map
-    const zoom = e.k === 'river' || e.k === 'basin' ? 7.2 : e.k === 'town' ? 10 : 9
+    const zoom = e.k === 'river' || e.k === 'basin' ? 7.2 : e.k === 'town' || e.k === 'place' ? 10.5 : 9
     map?.flyTo({ center: e.c, zoom, duration: 1800, essential: true })
     setQ('')
     setFocus(false)
@@ -87,8 +132,8 @@ export function SearchBox() {
         ref={inputRef}
         value={q}
         placeholder="Search a river, town, lake, peak or 48.14, 11.58"
-        onFocus={() => setFocus(true)}
-        onChange={(e) => { setQ(e.target.value); setSel(0); setFocus(true) }}
+        onFocus={() => { setFocus(true); loadGazetteer() }}
+        onChange={(e) => { setQ(e.target.value); setSel(0); setFocus(true); loadGazetteer() }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(s + 1, results.length - 1)) }
           else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => Math.max(0, s - 1)) }
@@ -96,8 +141,13 @@ export function SearchBox() {
           else if (e.key === 'Escape') setFocus(false)
         }}
       />
-      {focus && results.length ? (
+      {focus && (results.length || (gazLoading && q.length > 1)) ? (
         <div className="results glass">
+          {gazLoading ? (
+            <div className="result" style={{ opacity: 0.6 }}>
+              <span className="spin" /> loading every town and river…
+            </div>
+          ) : null}
           {results.map((e, i) => (
             <div key={`${e.n}-${i}`} className={`result ${i === sel ? 'sel' : ''}`}
               onMouseEnter={() => setSel(i)} onClick={() => go(e)}>

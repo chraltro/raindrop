@@ -28,7 +28,7 @@ export function Labels() {
 
   useEffect(() => {
     fetch(`${DATA_URL}/search.json`).then((r) => r.json()).then(setIndex).catch(() => {})
-    fetch(`${DATA_URL}/vector/marine.geojson`).then((r) => r.json()).then((g) => {
+    fetch(`${DATA_URL}/vector/marine.json`).then((r) => r.json()).then((g) => {
       const out: Entry[] = []
       for (const f of g.features) {
         if (!f.properties?.name) continue

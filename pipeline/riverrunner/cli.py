@@ -19,7 +19,7 @@ from .hydro import topo_order
 from .naturalearth import fetch_all
 from .tiles import download_grid, grid_for_bbox
 from .vectorize import build_rivers
-from .webdata import build_web_layers
+from .webdata import build_gazetteer, build_web_layers
 
 STAGES = ["fetch", "hydro", "tiles", "relief", "rivers", "basins", "climate", "web"]
 
@@ -58,7 +58,7 @@ def main(argv: list[str]) -> int:
     if "basins" in stages:
         if rivers is None:
             import json
-            p = OUT / "rivers-lod1.geojson"
+            p = OUT / "rivers-lod1.json"
             rivers = json.loads(p.read_text())["features"] if p.exists() else None
         basins = build_basins(hyd, rivers)
         export_basin_polygons(hyd, basins)
@@ -82,13 +82,17 @@ def main(argv: list[str]) -> int:
     if "web" in stages:
         if rivers is None:
             import json
-            p = OUT / "rivers-lod1.geojson"
+            p = OUT / "rivers-lod1.json"
             rivers = json.loads(p.read_text())["features"] if p.exists() else None
         if basins is None:
             import json
             p = OUT / "basins.json"
             basins = json.loads(p.read_text()) if p.exists() else None
         build_web_layers(rivers, basins)
+        import json as _json
+        detail = OUT / "rivers-lod2.json"
+        fine = _json.loads(detail.read_text())["features"] if detail.exists() else rivers
+        build_gazetteer(fine)
 
     if parts:
         export.write_manifest(hyd["grid"], parts)

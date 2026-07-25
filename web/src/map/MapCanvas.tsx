@@ -140,7 +140,7 @@ export function MapCanvas() {
     if (!src || detailLoaded.current) return
     if (map.getZoom() < detailZoom()) return
     detailLoaded.current = true
-    fetch(`${DATA_URL}/rivers-lod2.geojson`)
+    fetch(`${DATA_URL}/rivers-lod2.json`)
       .then((r) => r.json())
       .then((geo) => {
         const s2 = map.getSource('rivers2') as GeoJSONSource | undefined
@@ -204,7 +204,7 @@ export function MapCanvas() {
     map.setLayoutProperty('basins-line', 'visibility', vis)
     if (!s.showBasins || basinsLoaded.current) return
     basinsLoaded.current = true
-    fetch(`${DATA_URL}/basins.geojson`).then((r) => r.json()).then((geo) => {
+    fetch(`${DATA_URL}/basins-poly.json`).then((r) => r.json()).then((geo) => {
       for (const f of geo.features) f.properties.color = SEA_COLORS[f.properties.seaGroup] ?? '#6cf'
       ;(map.getSource('basins') as GeoJSONSource | undefined)?.setData(geo)
     })

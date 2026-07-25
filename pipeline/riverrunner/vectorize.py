@@ -174,7 +174,7 @@ def build_rivers(hyd, thresholds=(20000.0, 1500.0, 250.0), simplify=(0.02, 0.005
                 f["geometry"]["coordinates"] = [
                     [round(x, 4), round(y, 4)]
                     for x, y in f["geometry"]["coordinates"]]
-        path = OUT / f"rivers-lod{lod}.geojson"
+        path = OUT / f"rivers-lod{lod}.json"
         path.write_text(json.dumps({"type": "FeatureCollection",
                                     "features": feats}, separators=(",", ":")))
         print(f"[vec]   -> {path.name} ({path.stat().st_size/1e6:.1f} MB)")

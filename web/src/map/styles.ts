@@ -100,14 +100,14 @@ export function buildStyle(dataUrl: string, theme: Theme, opts: {
       attribution:
         'Relief & hydrography derived from <a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles</a> (SRTM/ASTER/NED) · <a href="https://www.naturalearthdata.com/">Natural Earth</a>',
     },
-    countries: { type: 'geojson', data: `${dataUrl}/vector/countries.geojson` },
-    coastline: { type: 'geojson', data: `${dataUrl}/vector/coastline.geojson` },
-    lakes: { type: 'geojson', data: `${dataUrl}/vector/lakes.geojson` },
-    lakesEu: { type: 'geojson', data: `${dataUrl}/vector/lakes_eu.geojson` },
-    glaciers: { type: 'geojson', data: `${dataUrl}/vector/glaciers.geojson` },
-    urban: { type: 'geojson', data: `${dataUrl}/vector/urban.geojson` },
-    rivers0: { type: 'geojson', data: `${dataUrl}/rivers-lod0.geojson` },
-    rivers1: { type: 'geojson', data: `${dataUrl}/rivers-lod1.geojson` },
+    countries: { type: 'geojson', data: `${dataUrl}/vector/countries.json` },
+    coastline: { type: 'geojson', data: `${dataUrl}/vector/coastline.json` },
+    lakes: { type: 'geojson', data: `${dataUrl}/vector/lakes.json` },
+    lakesEu: { type: 'geojson', data: `${dataUrl}/vector/lakes_eu.json` },
+    glaciers: { type: 'geojson', data: `${dataUrl}/vector/glaciers.json` },
+    urban: { type: 'geojson', data: `${dataUrl}/vector/urban.json` },
+    rivers0: { type: 'geojson', data: `${dataUrl}/rivers-lod0.json` },
+    rivers1: { type: 'geojson', data: `${dataUrl}/rivers-lod1.json` },
     rivers2: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     basins: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     watershed: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -164,7 +164,7 @@ export function buildStyle(dataUrl: string, theme: Theme, opts: {
   if (opts.dem) {
     layers.push({
       id: 'hillshade', type: 'hillshade', source: 'dem',
-      minzoom: 7,
+      minzoom: 6,
       paint: {
         'hillshade-exaggeration': theme === 'light' ? 0.35 : 0.5,
         'hillshade-shadow-color': p.hillshadeShadow,

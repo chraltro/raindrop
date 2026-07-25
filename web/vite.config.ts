@@ -16,13 +16,28 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallbackDenylist: [/^\/data\//],
+        cleanupOutdatedCaches: true,
+        skipWaiting: true,
+        clientsClaim: true,
         runtimeCaching: [
           {
-            urlPattern: /\/data\/.*\.(png|webp|json|geojson)$/,
+            // Tiles are immutable once published: cache them hard.
+            urlPattern: /\/data\/.*\.(png|webp)$/,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'river-runner-data',
+              cacheName: 'river-runner-tiles',
               expiration: { maxEntries: 3000, maxAgeSeconds: 60 * 60 * 24 * 30 },
+            },
+          },
+          {
+            // Metadata and vector layers are rebuilt with the app, so serve
+            // the cached copy but refresh it in the background — otherwise a
+            // stale index can outlive the code that understands it.
+            urlPattern: /\/data\/.*\.json$/,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'river-runner-meta',
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 7 },
             },
           },
         ],

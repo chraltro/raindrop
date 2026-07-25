@@ -98,7 +98,7 @@ export class HydroClient {
   }
 
   async init(baseUrl: string) {
-    const r = await this.call<{ manifest: Manifest; basins: number; rivers: number }>(
+    const r = await this.call<{ manifest: Manifest; basins: number }>(
       'init', [baseUrl],
     )
     this.manifest = r.manifest

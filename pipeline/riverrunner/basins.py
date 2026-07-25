@@ -300,7 +300,7 @@ def export_basin_polygons(hyd, basins, factor=4) -> None:
                                      "river": b.get("river")},
                       "geometry": mapping(g)})
     feats.sort(key=lambda f: -f["properties"]["area"])
-    path = OUT / "basins.geojson"
+    path = OUT / "basins-poly.json"
     path.write_text(json.dumps({"type": "FeatureCollection", "features": feats},
                                separators=(",", ":")))
     print(f"[basin] -> {path.name} ({path.stat().st_size/1e6:.1f} MB, "
