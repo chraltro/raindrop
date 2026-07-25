@@ -157,6 +157,75 @@ export function MapCanvas() {
     }
   }, [s.terrain3d, s.demAvailable, styleReady])
 
+  // --------------------------------------------------------- storm brush
+  // Storm mode has always said "drag over the map to rain on an area"; until
+  // now the only way to make rain was a button that seeded the whole view.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || s.mode !== 'rain') return
+    const canvas = map.getCanvasContainer()
+    let start: { x: number; y: number } | null = null
+    const box = document.createElement('div')
+    box.className = 'brush'
+
+    const px = (e: PointerEvent) => {
+      const r = canvas.getBoundingClientRect()
+      return { x: e.clientX - r.left, y: e.clientY - r.top }
+    }
+    const draw = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+      box.style.left = `${Math.min(a.x, b.x)}px`
+      box.style.top = `${Math.min(a.y, b.y)}px`
+      box.style.width = `${Math.abs(a.x - b.x)}px`
+      box.style.height = `${Math.abs(a.y - b.y)}px`
+    }
+    const down = (e: PointerEvent) => {
+      if (e.button !== 0 && e.pointerType === 'mouse') return
+      start = px(e)
+      draw(start, start)
+      canvas.appendChild(box)
+      canvas.setPointerCapture(e.pointerId)
+    }
+    const move = (e: PointerEvent) => { if (start) draw(start, px(e)) }
+    const up = (e: PointerEvent) => {
+      if (!start) return
+      const end = px(e)
+      const a = start
+      start = null
+      box.remove()
+      canvas.releasePointerCapture?.(e.pointerId)
+      // A tap rather than a drag falls through to the normal click handler.
+      if (Math.abs(a.x - end.x) < 12 || Math.abs(a.y - end.y) < 12) return
+      const c1 = map.unproject([Math.min(a.x, end.x), Math.min(a.y, end.y)])
+      const c2 = map.unproject([Math.max(a.x, end.x), Math.max(a.y, end.y)])
+      const n = useStore.getState().rainDrops
+      const seeds: [number, number][] = []
+      for (let i = 0; i < n; i++)
+        seeds.push([
+          c1.lng + Math.random() * (c2.lng - c1.lng),
+          c2.lat + Math.random() * (c1.lat - c2.lat),
+        ])
+      void useStore.getState().makeRain(seeds)
+    }
+
+    map.dragPan.disable()
+    map.boxZoom.disable()
+    canvas.style.cursor = 'crosshair'
+    canvas.addEventListener('pointerdown', down)
+    canvas.addEventListener('pointermove', move)
+    canvas.addEventListener('pointerup', up)
+    canvas.addEventListener('pointercancel', up)
+    return () => {
+      box.remove()
+      map.dragPan.enable()
+      map.boxZoom.enable()
+      canvas.style.cursor = ''
+      canvas.removeEventListener('pointerdown', down)
+      canvas.removeEventListener('pointermove', move)
+      canvas.removeEventListener('pointerup', up)
+      canvas.removeEventListener('pointercancel', up)
+    }
+  }, [s.mode])
+
   // ------------------------------------------------------- click behaviour
   useEffect(() => {
     const map = mapRef.current

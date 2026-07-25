@@ -29,6 +29,7 @@ interface State {
   seasonal: boolean
   year: number
   mode: Mode
+  rainDrops: number
   cinematic: boolean
   panelOpen: boolean
   panelFull: boolean
@@ -74,6 +75,7 @@ export const useStore = create<State>((set, get) => ({
   seasonal: false,
   year: 2025,
   mode: 'drop',
+  rainDrops: 900,
   cinematic: true,
   panelOpen: typeof window === 'undefined' ||
     !window.matchMedia('(max-width: 780px), (max-height: 520px)').matches,

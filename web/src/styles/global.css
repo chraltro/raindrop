@@ -334,6 +334,15 @@ input[type='range']::-moz-range-thumb {
 .result .sub { font-size: 11px; color: var(--muted); }
 
 /* --------------------------------------------------------------- labels */
+.brush {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  background: rgba(92, 200, 255, 0.16);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 2;
+}
+
 .labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .label {
   position: absolute;

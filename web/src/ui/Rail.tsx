@@ -198,13 +198,13 @@ export function Rail() {
 
 function StormControls() {
   const s = useStore()
-  const [drops, setDrops] = useState(900)
+  const drops = s.rainDrops
   return (
     <div style={{ marginTop: 8 }}>
       <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{drops} drops</div>
       <input type="range" min={100} max={4000} step={100} value={drops}
         style={{ width: '100%', ['--pct' as string]: `${((drops - 100) / 3900) * 100}%` }}
-        onChange={(e) => { setDrops(Number(e.target.value)); ;(window as any).__rainDrops = Number(e.target.value) }} />
+        onChange={(e) => s.set('rainDrops', Number(e.target.value))} />
       <button className="btn" style={{ width: '100%', justifyContent: 'center' }}
         onClick={() => {
           const map = (window as unknown as { __map?: MapLibreMap }).__map
