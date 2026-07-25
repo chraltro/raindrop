@@ -88,10 +88,14 @@ function ControlsButton() {
 function ReopenPanel() {
   const panelOpen = useStore((s) => s.panelOpen)
   const hasResult = useStore((s) => Boolean(s.trace || s.upstream || s.compare[0].basin))
+  // the timeline owns the bottom of the screen whenever there is something
+  // playing, so the pill sits above it rather than on top of it
+  const timeline = useStore((s) => Boolean(s.trace || s.upstream || s.rainPaths))
   const set = useStore((s) => s.set)
   if (panelOpen || !hasResult) return null
   return (
-    <button className="btn glass reopen" onClick={() => set('panelOpen', true)}>
+    <button className={`btn glass reopen ${timeline ? 'stacked' : ''}`}
+      onClick={() => set('panelOpen', true)}>
       Show the journey
     </button>
   )

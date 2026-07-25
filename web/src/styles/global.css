@@ -47,6 +47,10 @@ html, body, #root {
 button { font-family: inherit; color: inherit; }
 
 .map-root { position: absolute; inset: 0; }
+/* Without this a pinch can reach the browser instead of the map, which zooms
+   the page and leaves the map showing somewhere else entirely. */
+.map-root, .map-root canvas { touch-action: none; }
+html, body { overscroll-behavior: none; }
 
 .maplibregl-ctrl-attrib,
 .maplibregl-ctrl-group {
@@ -68,7 +72,18 @@ button { font-family: inherit; color: inherit; }
 }
 
 /* ------------------------------------------------------------------ shell */
-.shell { position: absolute; inset: 0; pointer-events: none; }
+/* MapLibre's own controls live inside the map container; without an explicit
+   order the attribution paints on top of the timeline.  The corner boxes are
+   the positioned elements, so the z-index has to go on them. */
+.maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right,
+.maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { z-index: 5; }
+
+/* A "compact" attribution still renders expanded, which on a phone is a
+   two-line paragraph lying across the bottom of the screen. Keep it as the
+   ⓘ button it is meant to be; tapping it still shows the licences. */
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner { display: none; }
+.maplibregl-ctrl-attrib.maplibregl-compact:focus-within .maplibregl-ctrl-attrib-inner { display: block; }
+.shell { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
 .shell > * { pointer-events: auto; }
 
 .glass {
@@ -331,8 +346,15 @@ input[type='range']::-moz-range-thumb {
   font-weight: 500;
 }
 :root[data-theme='light'] .label { color: #123; text-shadow: 0 1px 2px rgba(255,255,255,0.9); }
+/* The panel chrome stays dark on every theme, but a river name has to read
+   against whatever the basemap is, not against the panels. */
+.labels[data-base='light'] .label {
+  color: #10222f;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.95), 0 0 9px rgba(255, 255, 255, 0.85);
+}
 .label.sea { font-style: italic; letter-spacing: 0.14em; text-transform: uppercase; font-size: 10px; opacity: 0.7; }
 .label.river { color: rgba(150, 225, 255, 0.95); font-style: italic; }
+.labels[data-base='light'] .label.river { color: #0a5fd0; }
 .label.peak { font-size: 10px; opacity: 0.75; }
 .label.town::before {
   content: '';
@@ -579,6 +601,8 @@ input[type='range']::-moz-range-thumb {
   border: 0;
   padding: 0;
 }
+
+.reopen.stacked { bottom: calc(68px + env(safe-area-inset-bottom)); }
 
 .reopen {
   position: absolute;

@@ -20,6 +20,7 @@ interface State {
   theme: Theme
   terrain3d: boolean
   demAvailable: boolean
+  basemapOnline: boolean
   contours: boolean
   overlay: Overlay
   showBasins: boolean
@@ -64,6 +65,7 @@ export const useStore = create<State>((set, get) => ({
   theme: 'relief',
   terrain3d: false,
   demAvailable: true,
+  basemapOnline: true,
   contours: false,
   overlay: 'none',
   showBasins: false,

@@ -4,7 +4,7 @@ import type { GeoJSONSource, IControl, MapMouseEvent } from 'maplibre-gl'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import { BitmapLayer, COORDINATE_SYSTEM, PathLayer, ScatterplotLayer, TripsLayer } from 'deck.gl'
 import { useStore } from '../state/store'
-import { buildStyle, AWS_TERRAIN } from './styles'
+import { buildStyle, probeBasemap, AWS_TERRAIN, type Theme } from './styles'
 import { Overlays } from './overlays'
 import { DATA_URL } from '../config'
 import { isCompact } from '../ui/useMedia'
@@ -29,6 +29,10 @@ export function MapCanvas() {
   const raf = useRef(0)
   const anim = useRef({ t0: 0, duration: 20, playing: false, progress: 0, speed: 1 })
   const dirty = useRef(true)
+  const styleLoaded = useRef(false)
+  const probeOk = useRef<boolean | null>(null)
+  const baseErrors = useRef(0)
+  const lastTheme = useRef<Theme | null>(null)
   const camSkip = useRef(false)
   const lastPush = useRef(0)
   const [styleReady, setStyleReady] = useState(false)
@@ -40,12 +44,13 @@ export function MapCanvas() {
     if (!holder.current || mapRef.current) return
     const map = new MapLibreMap({
       container: holder.current,
-      style: buildStyle(DATA_URL, 'relief', {
+      style: buildStyle(DATA_URL, useStore.getState().theme, {
         dem: true, bounds: [-25, 33, 62, 72], reliefMinZoom: 3, reliefMaxZoom: 7,
+        online: true,
       }),
       center: START_VIEW.center,
       zoom: START_VIEW.zoom,
-      maxZoom: 14,
+      maxZoom: 16,
       minZoom: 2.6,
       attributionControl: false,
       hash: false,
@@ -53,7 +58,13 @@ export function MapCanvas() {
       pitchWithRotate: !isCompact(),
       maxPitch: isCompact() ? 60 : 75,
     })
-    if (isCompact()) map.touchZoomRotate.disableRotation()
+    if (isCompact()) {
+      // A pinch and a two-finger pitch drag look almost the same on a small
+      // screen, and a stray pitch with terrain on throws the camera somewhere
+      // unrecognisable. Pinch is zoom, nothing else.
+      map.touchZoomRotate.disableRotation()
+      map.touchPitch.disable()
+    }
     mapRef.current = map
     map.addControl(new AttributionControl({ compact: true }), 'bottom-right')
     map.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right')
@@ -66,15 +77,28 @@ export function MapCanvas() {
     // A phone repaints the entire map on every camera change, so the
     // cinematic ride is opt-in there and the route is framed instead.
     if (isCompact()) useStore.setState({ cinematic: false })
-    map.on('load', () => {
+    // 'load' waits for the first frame's tiles, so a blocked tile service left
+    // the app stuck half-initialised — no overlays, no fallback, dead buttons.
+    // 'style.load' only needs the style itself, which is built in this file.
+    map.once('style.load', () => {
+      styleLoaded.current = true
       setStyleReady(true)
       const ov = new Overlays(DATA_URL, useStore.getState().client!.manifest!)
       overlaysRef.current = ov
       ov.load().then(() => useStore.setState({}))
     })
+    // Tile services fail in two ways: blocked outright, or one bad tile.  A
+    // handful of failures on the basemap means the service is unusable and the
+    // self-hosted relief takes over; a single 404 is not worth a style rebuild.
     map.on('error', (e: unknown) => {
-      const url = (e as unknown as { sourceId?: string }).sourceId
-      if (url === 'dem') useStore.setState({ demAvailable: false })
+      const src = (e as unknown as { sourceId?: string }).sourceId
+      if (src === 'dem') useStore.setState({ demAvailable: false })
+      else if ((src === 'base' || src === 'baseLabels') && ++baseErrors.current === 5)
+        useStore.setState({ basemapOnline: false })
+    })
+    void probeBasemap().then((ok) => {
+      probeOk.current = ok
+      if (!ok) useStore.setState({ basemapOnline: false, demAvailable: false })
     })
     return () => { map.remove(); mapRef.current = null }
   }, [])
@@ -83,24 +107,41 @@ export function MapCanvas() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !styleReady) return
+    // Each basemap comes from a different provider. One of them being blocked
+    // says nothing about the others, so a theme change gets a clean slate —
+    // unless the up-front probe already showed there is no tile service at all.
+    if (lastTheme.current !== s.theme) {
+      lastTheme.current = s.theme
+      baseErrors.current = 0
+      if (!s.basemapOnline && probeOk.current !== false) {
+        useStore.setState({ basemapOnline: true })
+        return
+      }
+    }
     const style = buildStyle(DATA_URL, s.theme, {
       dem: s.demAvailable, bounds: [-25, 33, 62, 72], reliefMinZoom: 3, reliefMaxZoom: 7,
+      online: s.basemapOnline,
     })
+    // Every MapLibre call that touches layers throws while a style is being
+    // swapped in. 'styledata' fires *during* that window, so the old code threw
+    // out of an effect and took the whole React tree — and every button with
+    // it — down with it. Wait for 'style.load', and keep a flag so the other
+    // effects know not to touch the map in the meantime.
+    styleLoaded.current = false
     map.setStyle(style, { diff: false })
-    map.once('styledata', () => {
+    map.once('style.load', () => {
+      styleLoaded.current = true
       applyWatershed()
       applyBasins()
       applyDetailRivers()
-      if (s.terrain3d && s.demAvailable) {
-        map.setTerrain({ source: 'dem', exaggeration: 1.35 })
-      }
+      if (s.terrain3d && s.demAvailable) map.setTerrain({ source: 'dem', exaggeration: 1.35 })
     })
-  }, [s.theme, s.demAvailable])
+  }, [s.theme, s.demAvailable, s.basemapOnline])
 
   // ------------------------------------------------------------- 3d terrain
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !styleReady) return
+    if (!map || !styleReady || !styleLoaded.current) return
     if (s.terrain3d && s.demAvailable) {
       if (!map.getSource('dem')) {
         map.addSource('dem', {
@@ -135,9 +176,13 @@ export function MapCanvas() {
   // --------------------------------------------------- detail river source
   const applyDetailRivers = () => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || !styleLoaded.current) return
     const src = map.getSource('rivers2') as GeoJSONSource | undefined
-    if (!src || detailLoaded.current) return
+    if (!src) return
+    // A style swap replaces every source, so anything already downloaded has
+    // to be put back rather than fetched again.
+    if (detailData.current) { src.setData(detailData.current as never); return }
+    if (detailLoaded.current) return
     if (map.getZoom() < detailZoom()) return
     detailLoaded.current = true
     fetch(`${DATA_URL}/rivers-lod2.json`)
@@ -156,6 +201,7 @@ export function MapCanvas() {
     const map = mapRef.current
     if (!map) return
     const onZoom = () => {
+      if (!styleLoaded.current) return
       if (map.getZoom() >= detailZoom()) {
         if (detailData.current) {
           const src = map.getSource('rivers2') as GeoJSONSource | undefined
@@ -172,7 +218,7 @@ export function MapCanvas() {
   // ------------------------------------------------------------- watershed
   const applyWatershed = () => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || !styleLoaded.current) return
     const src = map.getSource('watershed') as GeoJSONSource | undefined
     if (!src) return
     const st = useStore.getState()
@@ -198,18 +244,25 @@ export function MapCanvas() {
   // ---------------------------------------------------------------- basins
   const applyBasins = () => {
     const map = mapRef.current
-    if (!map || !map.getLayer('basins-fill')) return
+    if (!map || !styleLoaded.current || !map.getLayer('basins-fill')) return
     const vis = s.showBasins ? 'visible' : 'none'
     map.setLayoutProperty('basins-fill', 'visibility', vis)
     map.setLayoutProperty('basins-line', 'visibility', vis)
-    if (!s.showBasins || basinsLoaded.current) return
+    if (!s.showBasins) return
+    if (basinsData.current) {
+      ;(map.getSource('basins') as GeoJSONSource | undefined)?.setData(basinsData.current as never)
+      return
+    }
+    if (basinsLoaded.current) return
     basinsLoaded.current = true
     fetch(`${DATA_URL}/basins-poly.json`).then((r) => r.json()).then((geo) => {
       for (const f of geo.features) f.properties.color = SEA_COLORS[f.properties.seaGroup] ?? '#6cf'
+      basinsData.current = geo
       ;(map.getSource('basins') as GeoJSONSource | undefined)?.setData(geo)
     })
   }
   const basinsLoaded = useRef(false)
+  const basinsData = useRef<unknown>(null)
   useEffect(() => { applyBasins() }, [s.showBasins, styleReady])
 
   // -------------------------------------------------------------- overlays
@@ -367,7 +420,8 @@ export function MapCanvas() {
   }, [s.progress])
 
   useEffect(() => { dirty.current = true },
-    [s.trace, s.upstream, s.rainPaths, s.probe, s.overlay, s.month, s.seasonal, s.theme])
+    [s.trace, s.upstream, s.rainPaths, s.probe, s.overlay, s.month, s.seasonal, s.theme,
+     s.basemapOnline])
 
   /** Frame the whole journey — the default view when not riding the drop. */
   const fitRoute = (path: { lon: Float64Array; lat: Float64Array }) => {
@@ -431,6 +485,14 @@ export function MapCanvas() {
     const st = useStore.getState()
     const layers: any[] = []
     const ov = overlaysRef.current
+    // Over a pale basemap the pale-cyan trail all but disappears, so the
+    // journey is drawn in deep blue instead.
+    const pale = st.basemapOnline && (st.theme === 'relief' || st.theme === 'light')
+    const c: Record<string, [number, number, number, number]> = pale
+      ? { ghost: [12, 95, 208, 70], trail: [12, 95, 208, 255], glow: [30, 120, 220, 55],
+          ring: [10, 80, 190, 255], trib: [214, 110, 10, 235], origin: [16, 34, 47, 235] }
+      : { ghost: [120, 200, 255, 55], trail: [140, 230, 255, 255], glow: [90, 200, 255, 60],
+          ring: [120, 220, 255, 255], trib: [255, 205, 120, 210], origin: [255, 255, 255, 220] }
 
     if (overlayImage.current && ov) {
       layers.push(new BitmapLayer({
@@ -453,7 +515,7 @@ export function MapCanvas() {
         id: 'route-ghost',
         data: routeData.current,
         getPath: (d: { path: [number, number][] }) => d.path,
-        getColor: [120, 200, 255, 55],
+        getColor: c.ghost,
         getWidth: 3,
         widthUnits: 'pixels',
         widthMinPixels: 1.5,
@@ -466,7 +528,7 @@ export function MapCanvas() {
         data: routeData.current,
         getPath: (d: { path: [number, number][] }) => d.path,
         getTimestamps: (d: { timestamps: number[] }) => d.timestamps,
-        getColor: [140, 230, 255],
+        getColor: c.trail,
         getWidth: 5,
         widthUnits: 'pixels',
         widthMinPixels: 2.5,
@@ -486,7 +548,7 @@ export function MapCanvas() {
         getPosition: (d: { p: [number, number] }) => d.p,
         getRadius: 26,
         radiusUnits: 'pixels',
-        getFillColor: [90, 200, 255, 60],
+        getFillColor: c.glow,
         stroked: false,
       }))
       layers.push(new ScatterplotLayer({
@@ -497,7 +559,7 @@ export function MapCanvas() {
         radiusUnits: 'pixels',
         getFillColor: [255, 255, 255, 245],
         stroked: true,
-        getLineColor: [120, 220, 255, 255],
+        getLineColor: c.ring,
         lineWidthUnits: 'pixels',
         getLineWidth: 2,
       }))
@@ -509,7 +571,7 @@ export function MapCanvas() {
           getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
           getRadius: 5,
           radiusUnits: 'pixels',
-          getFillColor: [255, 205, 120, 210],
+          getFillColor: c.trib,
           stroked: false,
         }))
       }
@@ -558,7 +620,7 @@ export function MapCanvas() {
         radiusUnits: 'pixels',
         getFillColor: [255, 255, 255, 0],
         stroked: true,
-        getLineColor: [255, 255, 255, 220],
+        getLineColor: c.origin,
         lineWidthUnits: 'pixels',
         getLineWidth: 2,
       }))

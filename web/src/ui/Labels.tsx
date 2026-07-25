@@ -4,6 +4,10 @@
  * MapLibre's symbol layers need an SDF glyph server; drawing labels in the DOM
  * instead keeps the app free of third-party services and gives proper web
  * typography.  A simple greedy collision test keeps the map uncluttered.
+ *
+ * The basemap already names towns, lakes and seas, so over it only the river
+ * names — the part no general-purpose map bothers to draw — are added.  When
+ * the basemap is unavailable this draws the full set instead.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Map as MapLibreMap } from 'maplibre-gl'
@@ -24,10 +28,12 @@ export function Labels() {
   const raf = useRef(0)
   const theme = useStore((s) => s.theme)
   const panelOpen = useStore((s) => s.panelOpen)
+  const online = useStore((s) => s.basemapOnline)
   const phone = useIsPhone()
 
   useEffect(() => {
     fetch(`${DATA_URL}/search.json`).then((r) => r.json()).then(setIndex).catch(() => {})
+    if (online) return
     fetch(`${DATA_URL}/vector/marine.json`).then((r) => r.json()).then((g) => {
       const out: Entry[] = []
       for (const f of g.features) {
@@ -37,15 +43,16 @@ export function Labels() {
       }
       setSeas(out)
     }).catch(() => {})
-  }, [])
+  }, [online])
 
   const pool = useMemo(() => {
     const byKind = (k: string, limit: number) =>
       index.filter((e) => e.k === k)
         .sort((a, b) => a.r - b.r || (b.p ?? b.a ?? 0) - (a.p ?? a.a ?? 0))
         .slice(0, limit)
+    if (online) return byKind('river', 420)
     return [...seas, ...byKind('town', 900), ...byKind('river', 420), ...byKind('lake', 220), ...byKind('peak', 130)]
-  }, [index, seas])
+  }, [index, seas, online])
 
   useEffect(() => {
     let last = ''
@@ -98,7 +105,8 @@ export function Labels() {
   }, [pool, panelOpen, phone])
 
   return (
-    <div className="labels" data-theme={theme}>
+    <div className="labels" data-theme={theme}
+      data-base={online && (theme === 'relief' || theme === 'light') ? 'light' : 'dark'}>
       {placed.map((l) => (
         <div key={`${l.k}-${l.n}-${l.x.toFixed(0)}`} className={`label ${l.k}`}
           style={{ left: l.x, top: l.y }}>{l.n}</div>

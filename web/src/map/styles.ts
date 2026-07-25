@@ -1,9 +1,13 @@
 /**
- * Map styles are built in code from the project's own data, so the app needs
- * no tile API key and keeps working when third-party services are blocked.
+ * The basemap comes from a public tile service and this project's hydrology is
+ * drawn on top of it.  An earlier version rendered its own basemap from the
+ * elevation data, which needed no third-party service but topped out at zoom 7
+ * and turned to mush as soon as you zoomed into a valley — exactly where this
+ * app is worth looking at.  That version survives as `buildOfflineStyle`, used
+ * when the tile service cannot be reached.
  *
- * Labels are drawn as DOM elements (see ui/Labels.tsx) rather than SDF symbol
- * layers, which means no glyph server is required either.
+ * River labels are still drawn as DOM elements (see ui/Labels.tsx); the
+ * basemap carries towns, lakes and seas, so no glyph server is required.
  */
 import type { StyleSpecification } from 'maplibre-gl'
 
@@ -14,6 +18,57 @@ export const AWS_TERRAIN =
 export const ESRI_IMAGERY =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 
+/** Retina tiles are four times the bytes, so only ask when they will show. */
+const RETINA =
+  typeof window !== 'undefined' && window.devicePixelRatio > 1.3 ? '@2x' : ''
+
+const carto = (name: string) =>
+  ['a', 'b', 'c', 'd'].map(
+    (s) => `https://${s}.basemaps.cartocdn.com/rastertiles/${name}/{z}/{x}/{y}${RETINA}.png`,
+  )
+
+const CARTO_ATTR =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
+  '&copy; <a href="https://carto.com/attributions">CARTO</a>'
+
+const HYDRO_ATTR =
+  'Hydrology derived from <a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles</a> (SRTM/ASTER/NED)'
+
+export interface Basemap {
+  tiles: string[]
+  maxzoom: number
+  attribution: string
+  /** Optional label-only tiles, drawn above the hydrology so names stay legible. */
+  labels?: string[]
+}
+
+export const BASEMAPS: Record<Theme, Basemap> = {
+  relief: { tiles: carto('voyager'), maxzoom: 20, attribution: CARTO_ATTR },
+  dark: { tiles: carto('dark_all'), maxzoom: 20, attribution: CARTO_ATTR },
+  light: { tiles: carto('light_all'), maxzoom: 20, attribution: CARTO_ATTR },
+  satellite: {
+    tiles: [ESRI_IMAGERY],
+    maxzoom: 18,
+    attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics',
+    labels: carto('dark_only_labels'),
+  },
+}
+
+/** One tile fetched up front tells us whether to bother with the service. */
+export function probeBasemap(timeoutMs = 4500): Promise<boolean> {
+  const url = BASEMAPS.relief.tiles[0]
+    .replace('{z}', '4').replace('{x}', '8').replace('{y}', '5')
+  return new Promise((resolve) => {
+    const img = new Image()
+    const done = (ok: boolean) => { img.onload = img.onerror = null; resolve(ok) }
+    const timer = setTimeout(() => done(false), timeoutMs)
+    img.onload = () => { clearTimeout(timer); done(true) }
+    img.onerror = () => { clearTimeout(timer); done(false) }
+    img.crossOrigin = 'anonymous'
+    img.src = url
+  })
+}
+
 interface Palette {
   ocean: string
   land: string
@@ -23,6 +78,10 @@ interface Palette {
   lakeOutline: string
   river: string
   riverGlow: string
+  /** River colours for the overlay case, tuned to read over the basemap. */
+  overRiver: string
+  overGlow: string
+  overWatershed: string
   urban: string
   glacier: string
   reliefOpacity: number
@@ -40,6 +99,7 @@ export const PALETTES: Record<Theme, Palette> = {
     ocean: '#0a1d33', land: '#101a24', landOutline: 'rgba(255,255,255,0.10)',
     border: 'rgba(255,255,255,0.16)', lake: '#123b5c', lakeOutline: 'rgba(150,210,255,0.35)',
     river: '#5cc8ff', riverGlow: 'rgba(92,200,255,0.30)',
+    overRiver: '#0a5fd0', overGlow: 'rgba(10,95,208,0.30)', overWatershed: '#0a5fd0',
     urban: 'rgba(255,225,180,0.10)', glacier: 'rgba(220,240,255,0.55)',
     reliefOpacity: 1, reliefBrightMin: 0.02, reliefBrightMax: 0.95,
     reliefSaturation: -0.08, reliefContrast: 0.08,
@@ -49,6 +109,7 @@ export const PALETTES: Record<Theme, Palette> = {
     ocean: '#04080f', land: '#0b1119', landOutline: 'rgba(120,180,240,0.16)',
     border: 'rgba(140,190,240,0.20)', lake: '#0d2740', lakeOutline: 'rgba(120,200,255,0.30)',
     river: '#54c4ff', riverGlow: 'rgba(84,196,255,0.35)',
+    overRiver: '#5cd3ff', overGlow: 'rgba(92,211,255,0.35)', overWatershed: '#8ae7ff',
     urban: 'rgba(255,210,150,0.07)', glacier: 'rgba(190,225,255,0.30)',
     reliefOpacity: 0.42, reliefBrightMin: 0, reliefBrightMax: 0.55,
     reliefSaturation: -0.85, reliefContrast: 0.35,
@@ -58,6 +119,7 @@ export const PALETTES: Record<Theme, Palette> = {
     ocean: '#d9e8f5', land: '#f6f4ef', landOutline: 'rgba(30,60,90,0.16)',
     border: 'rgba(40,70,100,0.22)', lake: '#bcd9f0', lakeOutline: 'rgba(40,110,170,0.35)',
     river: '#2b8fd4', riverGlow: 'rgba(43,143,212,0.25)',
+    overRiver: '#0b6fd0', overGlow: 'rgba(11,111,208,0.28)', overWatershed: '#0b6fd0',
     urban: 'rgba(190,170,140,0.22)', glacier: 'rgba(255,255,255,0.85)',
     reliefOpacity: 0.55, reliefBrightMin: 0.35, reliefBrightMax: 1,
     reliefSaturation: -0.35, reliefContrast: -0.1,
@@ -67,6 +129,7 @@ export const PALETTES: Record<Theme, Palette> = {
     ocean: '#08131f', land: '#101a24', landOutline: 'rgba(255,255,255,0.10)',
     border: 'rgba(255,255,255,0.25)', lake: 'rgba(20,60,90,0.2)', lakeOutline: 'rgba(150,210,255,0.25)',
     river: '#7fdcff', riverGlow: 'rgba(127,220,255,0.35)',
+    overRiver: '#7fdcff', overGlow: 'rgba(127,220,255,0.40)', overWatershed: '#9ceaff',
     urban: 'rgba(0,0,0,0)', glacier: 'rgba(0,0,0,0)',
     reliefOpacity: 0, reliefBrightMin: 0, reliefBrightMax: 1,
     reliefSaturation: 0, reliefContrast: 0,
@@ -82,7 +145,146 @@ const riverWidth = (scale = 1): any => [
   11, ['*', scale, ['interpolate', ['linear'], ['sqrt', ['get', 'dn']], 5, 1.2, 60, 3, 300, 7, 1200, 14]],
 ]
 
-export function buildStyle(dataUrl: string, theme: Theme, opts: {
+export interface StyleOptions {
+  dem: boolean
+  bounds: [number, number, number, number]
+  reliefMinZoom: number
+  reliefMaxZoom: number
+  /** False when the public tile service could not be reached. */
+  online: boolean
+}
+
+export function buildStyle(
+  dataUrl: string, theme: Theme, opts: StyleOptions,
+): StyleSpecification {
+  return opts.online
+    ? buildOverlayStyle(dataUrl, theme, opts)
+    : buildOfflineStyle(dataUrl, theme, opts)
+}
+
+/**
+ * The normal case: someone else's basemap, our water on top.
+ *
+ * Coastlines, borders, lakes, towns and roads all come from the basemap, so
+ * none of the project's own chrome is loaded here — that is several megabytes
+ * of GeoJSON the first paint no longer waits for.
+ */
+function buildOverlayStyle(
+  dataUrl: string, theme: Theme, opts: StyleOptions,
+): StyleSpecification {
+  const p = PALETTES[theme]
+  const base = BASEMAPS[theme]
+  const sources: StyleSpecification['sources'] = {
+    base: {
+      type: 'raster',
+      tiles: base.tiles,
+      tileSize: 256,
+      maxzoom: base.maxzoom,
+      attribution: `${base.attribution} · ${HYDRO_ATTR}`,
+    },
+    rivers0: { type: 'geojson', data: `${dataUrl}/rivers-lod0.json` },
+    rivers1: { type: 'geojson', data: `${dataUrl}/rivers-lod1.json` },
+    rivers2: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    basins: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    watershed: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+  }
+  if (base.labels) {
+    sources.baseLabels = { type: 'raster', tiles: base.labels, tileSize: 256, maxzoom: 20 }
+  }
+  if (opts.dem) {
+    sources.dem = {
+      type: 'raster-dem', tiles: [AWS_TERRAIN], tileSize: 256, maxzoom: 13,
+      encoding: 'terrarium',
+    }
+  }
+
+  const layers: StyleSpecification['layers'] = [
+    { id: 'bg', type: 'background', paint: { 'background-color': p.ocean } },
+    {
+      id: 'base', type: 'raster', source: 'base',
+      paint: { 'raster-opacity': 1, 'raster-fade-duration': 150 },
+    },
+  ]
+
+  // Shaded relief over a flat basemap is what makes a valley read as a valley.
+  if (opts.dem) {
+    layers.push({
+      id: 'hillshade', type: 'hillshade', source: 'dem', minzoom: 5,
+      paint: {
+        'hillshade-exaggeration': theme === 'satellite' ? 0.15 : theme === 'light' ? 0.2 : 0.3,
+        'hillshade-shadow-color': p.hillshadeShadow,
+        'hillshade-highlight-color': p.hillshadeHighlight,
+        'hillshade-accent-color': p.hillshadeAccent,
+      },
+    })
+  }
+
+  layers.push(
+    {
+      id: 'basins-fill', type: 'fill', source: 'basins',
+      layout: { visibility: 'none' },
+      paint: {
+        'fill-color': ['get', 'color'],
+        'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.45, 0.22],
+      },
+    },
+    {
+      id: 'basins-line', type: 'line', source: 'basins',
+      layout: { visibility: 'none' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 1, 'line-opacity': 0.85 },
+    },
+    {
+      id: 'rivers2-glow', type: 'line', source: 'rivers2', minzoom: 8,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': p.overGlow, 'line-width': riverWidth(3.2), 'line-blur': 3 },
+    },
+    {
+      id: 'rivers2', type: 'line', source: 'rivers2', minzoom: 8,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': p.overRiver, 'line-width': riverWidth(0.85), 'line-opacity': 0.9 },
+    },
+    {
+      id: 'rivers1-glow', type: 'line', source: 'rivers1', minzoom: 4.5,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': p.overGlow, 'line-width': riverWidth(3), 'line-blur': 3 },
+    },
+    {
+      id: 'rivers1', type: 'line', source: 'rivers1', minzoom: 4.5,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': p.overRiver, 'line-width': riverWidth(1) },
+    },
+    {
+      id: 'rivers0', type: 'line', source: 'rivers0', maxzoom: 5.2,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': p.overRiver, 'line-width': riverWidth(1), 'line-opacity': 0.9 },
+    },
+    {
+      id: 'watershed-fill', type: 'fill', source: 'watershed',
+      paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.18 },
+    },
+    {
+      id: 'watershed-line', type: 'line', source: 'watershed',
+      paint: { 'line-color': ['get', 'color'], 'line-width': 1.8, 'line-opacity': 0.95 },
+    },
+  )
+
+  if (base.labels) {
+    layers.push({ id: 'base-labels', type: 'raster', source: 'baseLabels' })
+  }
+
+  return {
+    version: 8,
+    name: `River Runner ${theme}`,
+    sources,
+    layers,
+    sky: theme === 'satellite'
+      ? { 'sky-color': '#0a1626', 'horizon-color': '#1d3a55', 'fog-color': '#0a1626', 'fog-ground-blend': 0.6 }
+      : undefined,
+  } as StyleSpecification
+}
+
+/** Fallback for when no tile service can be reached: everything self-hosted. */
+function buildOfflineStyle(dataUrl: string, theme: Theme, opts: {
   dem: boolean
   bounds: [number, number, number, number]
   reliefMinZoom: number
@@ -98,7 +300,7 @@ export function buildStyle(dataUrl: string, theme: Theme, opts: {
       maxzoom: opts.reliefMaxZoom,
       bounds: opts.bounds,
       attribution:
-        'Relief & hydrography derived from <a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles</a> (SRTM/ASTER/NED) · <a href="https://www.naturalearthdata.com/">Natural Earth</a>',
+        `${HYDRO_ATTR} · <a href="https://www.naturalearthdata.com/">Natural Earth</a>`,
     },
     countries: { type: 'geojson', data: `${dataUrl}/vector/countries.json` },
     coastline: { type: 'geojson', data: `${dataUrl}/vector/coastline.json` },

@@ -11,9 +11,11 @@ how long the journey takes.
 
 **Live:** https://chraltro.github.io/raindrop/
 
-Everything runs in the browser. There is no backend, no API key and no tile
-subscription: the drainage network of the whole continent is precomputed into
-static tiles, and the routing happens in a Web Worker on the visitor's machine.
+Everything runs in the browser. There is no backend and no API key: the drainage
+network of the whole continent is precomputed into static tiles, and the routing
+happens in a Web Worker on the visitor's machine. The basemap underneath comes
+from public tile services (CARTO, Esri); if they cannot be reached, a shaded
+relief rendered from the project's own elevation data takes over.
 
 ---
 
@@ -64,7 +66,7 @@ published artefacts are:
 | `flow/{x}/{y}.png` | 512² greyscale: D8 direction in the low nibble, terminal class (ocean / lake / sink / edge / ice) in the high nibble |
 | `acc/{x}/{y}.png` | 256² greyscale: `area_km² = 2^(v/11) − 1` |
 | `elev/{x}/{y}.png` | 512² greyscale with a per-tile base and step — adaptive precision, finer over flat ground |
-| `relief/{z}/{x}/{y}.webp` | hypsometric tint + hillshade rendered from the same DEM: the basemap, self-hosted |
+| `relief/{z}/{x}/{y}.webp` | hypsometric tint + hillshade rendered from the same DEM: the offline-fallback basemap, self-hosted |
 | `rivers-lod{0,1,2}.geojson` | the derived network split into reaches at every confluence, named against Natural Earth |
 | `basins.json` / `basins.geojson` | 1,896 catchments with area, relief, destination sea, country shares and modelled discharge |
 | `climate/*.png` | interpolated precipitation, temperature and runoff |
@@ -101,12 +103,18 @@ add a microtask per step and turn a one-second fill into minutes.
 
 ### 3. The map (`web/src/map/`)
 
-MapLibre GL with a style built in code from the project's own data — no glyph
-server (labels are DOM elements), no third-party tiles required. deck.gl draws
-the animated route with a `TripsLayer`, so revealing the route is a GPU-side
-`currentTime` update rather than a per-frame data upload. Optional hillshade and
-3D terrain use the public terrain-tile service and degrade quietly when it is
-unavailable.
+MapLibre GL with the style built in code: a public raster basemap (CARTO Voyager
+/ Positron / Dark Matter, Esri World Imagery) underneath, and the project's own
+hydrology — rivers by drainage area, basins, watershed outlines — drawn over it.
+The basemap brings towns, coastlines and roads, so the only labels drawn in the
+DOM are river names, and no glyph server is needed.
+
+Every provider is probed on load and watched for tile errors; a theme whose
+provider is blocked falls back to the self-hosted relief on its own, without
+taking the others down with it. deck.gl draws the animated route with a
+`TripsLayer`, so revealing the route is a GPU-side `currentTime` update rather
+than a per-frame data upload. Optional hillshade and 3D terrain use the public
+terrain-tile service and degrade quietly when it is unavailable.
 
 ---
 

@@ -105,10 +105,14 @@ export function Rail() {
             <input type="checkbox" checked={s.cinematic}
               onChange={(e) => s.set('cinematic', e.target.checked)} />
           </label>
-          {!s.demAvailable ? (
+          {!s.basemapOnline ? (
+            <p className="note">The public tile service is unreachable, so the
+              map has fallen back to the shaded relief served from this site.
+              It is built from the same elevation data as the hydrology and
+              stops sharpening at around zoom 7.</p>
+          ) : !s.demAvailable ? (
             <p className="note">Hillshade and 3D need the public terrain-tile
-              service, which is unreachable right now. The shaded relief basemap
-              is served from this site and always works.</p>
+              service, which is unreachable right now.</p>
           ) : null}
         </>
       ))}
