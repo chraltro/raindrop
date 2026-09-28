@@ -145,6 +145,18 @@ const riverWidth = (scale = 1): any => [
   11, ['*', scale, ['interpolate', ['linear'], ['sqrt', ['get', 'dn']], 5, 1.2, 60, 3, 300, 7, 1200, 14]],
 ]
 
+/**
+ * Width of a stream from the terrain-resolution network. Its reaches drain
+ * 0.3 km² and up, far below where the continental ramp starts, so it has its
+ * own: hairlines for a gully, a firm line for a river.
+ */
+const streamWidth = (scale = 1): any => [
+  'interpolate', ['linear'], ['zoom'],
+  8,  ['*', scale, ['interpolate', ['linear'], ['sqrt', ['get', 'dn']], 0.5, 0.5, 5, 1, 30, 1.8]],
+  12, ['*', scale, ['interpolate', ['linear'], ['sqrt', ['get', 'dn']], 0.5, 1, 5, 2.2, 30, 4.2]],
+  15, ['*', scale, ['interpolate', ['linear'], ['sqrt', ['get', 'dn']], 0.5, 1.6, 5, 3.4, 30, 7]],
+]
+
 export interface StyleOptions {
   dem: boolean
   bounds: [number, number, number, number]
@@ -187,6 +199,7 @@ function buildOverlayStyle(
     rivers2: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     basins: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     watershed: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    streams: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
   }
   if (base.labels) {
     sources.baseLabels = { type: 'raster', tiles: base.labels, tileSize: 256, maxzoom: 20 }
@@ -259,6 +272,16 @@ function buildOverlayStyle(
       paint: { 'line-color': p.overRiver, 'line-width': riverWidth(1), 'line-opacity': 0.9 },
     },
     {
+      id: 'streams-glow', type: 'line', source: 'streams',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': p.overGlow, 'line-width': streamWidth(3), 'line-blur': 2.5, 'line-opacity': ['get', 'o'] },
+    },
+    {
+      id: 'streams', type: 'line', source: 'streams',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': p.overRiver, 'line-width': streamWidth(1), 'line-opacity': ['*', 0.95, ['get', 'o']] },
+    },
+    {
       id: 'watershed-fill', type: 'fill', source: 'watershed',
       paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.18 },
     },
@@ -313,6 +336,7 @@ function buildOfflineStyle(dataUrl: string, theme: Theme, opts: {
     rivers2: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     basins: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     watershed: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+    streams: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
   }
   if (opts.dem) {
     sources.dem = {
@@ -445,6 +469,16 @@ function buildOfflineStyle(dataUrl: string, theme: Theme, opts: {
         'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.4, 10, 1.2],
         'line-dasharray': [3, 2],
       },
+    },
+    {
+      id: 'streams-glow', type: 'line', source: 'streams',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': p.riverGlow, 'line-width': streamWidth(3), 'line-blur': 2.5, 'line-opacity': ['get', 'o'] },
+    },
+    {
+      id: 'streams', type: 'line', source: 'streams',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': p.river, 'line-width': streamWidth(1), 'line-opacity': ['*', 0.95, ['get', 'o']] },
     },
     {
       id: 'watershed-fill', type: 'fill', source: 'watershed',

@@ -81,8 +81,8 @@ function EmptyView() {
           <li><b style={{ color: 'var(--text)' }}>Compare</b> mode — put two basins side by side.</li>
         </ul>
         <p className="note">
-          Every route is computed live from a D8 flow-direction grid derived from
-          public elevation data at roughly 400 m resolution — nothing is
+          Every route is computed live from public elevation data — 20–40 m
+          around where you tap, a ~250 m flow grid downstream — and nothing is
           pre-recorded.
         </p>
       </div>
@@ -100,6 +100,9 @@ function JourneyView({ trace }: { trace: TraceResult }) {
   const facts = lookupFacts(basin?.river ?? st.steps.find((x) => x.name)?.name)
 
   const doneAt = progress * st.distance
+  const np = trace.path.lon.length
+  const fineDist = trace.path.detail && trace.path.join
+    ? trace.path.dist[Math.min(trace.path.join, np - 1)] : 0
   const place = probe?.lake ?? probe?.country ?? 'Europe'
 
   return (
@@ -145,15 +148,21 @@ function JourneyView({ trace }: { trace: TraceResult }) {
       <div className="section">
         <h3>Water path</h3>
         <Journey steps={st.steps} doneAt={doneAt} />
-        {start.area < 1.5 ? (
+        {trace.path.detail ? (
           <p className="note">
-            The drop starts on open ground: only {f.area(start.area)} drains to
-            this point, which is below what a 250 m grid can carry as a channel.
-            The first stretch is modelled overland flow — it crosses fields and
-            follows the lie of the land, not a mapped stream, and no watercourse
-            will be visible under it.
+            {start.sizeClass === 'Overland flow'
+              ? `Only ${f.area(start.area)} drains to this point — too little for a channel, so the water runs over the ground as sheet flow until it finds a gully. `
+              : ''}
+            The first {f.distance(fineDist)} follow 20–40 m terrain data; from there
+            the route joins the 250 m continental network.
           </p>
-        ) : null}
+        ) : (
+          <p className="note">
+            Fine terrain data could not be loaded, so this route follows the 250 m
+            continental network throughout
+            {start.area < 1.5 ? ` — and only ${f.area(start.area)} drains to this point, less than that grid can resolve as a channel` : ''}.
+          </p>
+        )}
       </div>
 
       <div className="section">

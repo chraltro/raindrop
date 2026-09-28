@@ -15,6 +15,9 @@ export interface SerialPath {
   terminal: number
   truncated: boolean
   seaAt: number
+  detail?: boolean
+  join?: number
+  startElev?: number
 }
 
 export interface BasinRecord {
@@ -38,8 +41,17 @@ export interface BasinRecord {
   runoff?: number
 }
 
+export interface StreamSet {
+  coords: Float32Array
+  starts: Uint32Array
+  dn: Float32Array
+  fade: Float32Array
+}
+
 export interface TraceResult {
   path: SerialPath
+  /** Stream network around the tap at terrain resolution, when available. */
+  streams?: StreamSet | null
   stats: PathStats
   basin: BasinRecord | null
   start: {

@@ -86,7 +86,23 @@ iteration.
 
 ### 2. The engine (`web/src/engine/`, TypeScript in a Web Worker)
 
-The worker fetches flow tiles on demand and walks the grid directly:
+A journey has two parts. The first stretch is routed on the terrain itself, and
+the rest on the continental grid:
+
+* **`detail.ts` — the first stretch, at 20–40 m.** A tap fetches the 3×3
+  Terrarium elevation tiles around it (zoom 12, from the AWS Open Data terrain
+  bucket, ~60 KB each, cached by the browser) and runs a priority-flood over that
+  window: depressions are filled, every cell learns which neighbour water leaves
+  it by, and one reverse pass over the flood order gives local flow
+  accumulation. The drop is walked downhill until it reaches a river the
+  continental grid already represents well (drainage area ≥ 500 km²), chaining
+  further windows if the stream is long. The same window yields the **stream
+  network around the tap** (drawn on the map, replacing the coarse network
+  locally) and the **catchment of the tap** as a real outline. If the elevation
+  service cannot be reached, everything falls back to the continental grid and
+  the panel says so.
+* **The continental grid** takes over from the join. The worker fetches its flow
+  tiles on demand and walks them directly:
 
 * **`traceDown`** — follow the D8 pointers to the terminal cell. A path from the
   Alps to the Black Sea is ~4,000 cells and resolves in well under a second.
@@ -120,10 +136,12 @@ terrain-tile service and degrade quietly when it is unavailable.
 
 ## How accurate is it?
 
-**Routing** is as good as a 390 m DEM allows, and at continental scale that is
-quite good: the derived Danube basin is 795,730 km² against a published
+**Routing** of the first stretch is as good as a 20–40 m DEM allows: the drop
+starts within a few metres of the tap, follows real valleys, and cannot climb.
+Downstream of the join it is as good as a ~250–300 m DEM allows, and at
+continental scale that is quite good: the derived Danube basin is 795,730 km² against a published
 801,463 km², the Volga 1.47 M km² against 1.36 M, and river mouths land within a
-few kilometres of reality. What a 390 m grid cannot do is resolve a small
+few kilometres of reality. What a 250–300 m grid cannot do is resolve a small
 stream, a levee, or the exact channel through a flat delta — in the Rhine and
 Danube deltas the drop picks *a* distributary, not necessarily the main one.
 
@@ -214,7 +232,15 @@ npm install
 npm run dev          # http://localhost:5173/raindrop/
 npm run build        # static site in web/dist
 npm run typecheck
+npm run e2e          # builds, serves and drives the app in a real browser
 ```
+
+`npm run e2e` runs the regression suite on a phone-sized and a desktop screen:
+taps start where the finger was, routes follow the terrain to a sea, the
+fallback when elevation data is unreachable, a network that drops 35 % of
+requests, sheets that close, controls that stay reachable. Basemap providers are
+stubbed; the elevation tiles are real. Set `URL=https://…` to test a deployed
+site, `ONLY=phone,lossy` to run some groups, `REBUILD=1` to force a build.
 
 The optional API:
 

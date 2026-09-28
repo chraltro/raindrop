@@ -75,6 +75,9 @@ html, body { overscroll-behavior: none; }
 /* MapLibre's own controls live inside the map container; without an explicit
    order the attribution paints on top of the timeline.  The corner boxes are
    the positioned elements, so the z-index has to go on them. */
+:root[data-timeline='on'] .maplibregl-ctrl-bottom-right {
+  bottom: calc(80px + env(safe-area-inset-bottom));
+}
 .maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right,
 .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { z-index: 5; }
 

@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useStore } from '../state/store'
 import { useIsPhone, useMedia } from './useMedia'
@@ -8,6 +9,16 @@ export function Timeline() {
   const phone = useIsPhone()
   const bottomSheet = useMedia('(max-width: 780px)')
   const active = trace || upstream || rainPaths
+
+  // On a phone the timeline sits over the corner where MapLibre keeps the
+  // attribution button, and the licence links are only reachable through it.
+  // Tell the stylesheet so it can lift the button clear.
+  const covering = Boolean(active) && phone && !panelOpen
+  useEffect(() => {
+    document.documentElement.dataset.timeline = covering ? 'on' : 'off'
+    return () => { document.documentElement.dataset.timeline = 'off' }
+  }, [covering])
+
   if (!active) return null
   const sheetH = bottomSheet && panelOpen ? (panelFull ? '82vh' : '44vh') : undefined
 

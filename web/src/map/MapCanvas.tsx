@@ -21,13 +21,13 @@ function detailZoom(): number {
 }
 
 /**
- * How far a tap may be from a river before it stops counting as aiming at it.
- * A drawn river is a simplified line over ~400 m cells, so at low zoom the
- * water can be a few cells from where it appears; without this, tapping a
- * river ran the drop down whatever hillside the finger actually landed on.
+ * How far from a river a tap still counts as aiming at it: about ten screen
+ * pixels, in metres. A fingertip covers more than that, and a drawn river is a
+ * thin line, so without it tapping "on" a river usually lands on the bank.
  */
-function snapRadius(zoom: number): number {
-  return Math.max(1, Math.min(12, Math.round(14 / 2 ** (zoom - 8))))
+function snapMetres(zoom: number, lat: number): number {
+  const metresPerPixel = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom
+  return Math.min(3000, Math.max(25, metresPerPixel * 10))
 }
 
 /** Animation duration in seconds for a path of the given length. */
@@ -62,10 +62,10 @@ export function MapCanvas() {
       }),
       center: START_VIEW.center,
       zoom: START_VIEW.zoom,
-      // The hydrology is a ~250 m grid. Past zoom 13 one flow cell is wider
-      // than a fingertip, so a tap lands visibly away from the cell centre the
-      // route has to start at — the basemap looks sharper, the answer does not
-      // get better, and the drop appears to miss.
+      // Without terrain-resolution routing the hydrology is a ~250 m grid, and
+      // past zoom 13 one of its cells is wider than a fingertip, so a tap lands
+      // visibly away from where the route has to start. Detail mode raises the
+      // limit once it has actually worked (see the trace effect below).
       maxZoom: 13,
       minZoom: 2.6,
       attributionControl: false,
@@ -150,6 +150,7 @@ export function MapCanvas() {
       applyWatershed()
       applyBasins()
       applyDetailRivers()
+      applyStreams()
       if (s.terrain3d && s.demAvailable) map.setTerrain({ source: 'dem', exaggeration: 1.35 })
     })
   }, [s.theme, s.demAvailable, s.basemapOnline])
@@ -253,7 +254,7 @@ export function MapCanvas() {
       if (st.mode === 'upstream') void st.exploreUpstream(lng, lat)
       else if (st.mode === 'compare') void st.addCompare(lng, lat)
       else void st.dropAt(lng, lat,
-        e.originalEvent.shiftKey ? 10 : snapRadius(map.getZoom()))
+        e.originalEvent.shiftKey ? true : snapMetres(map.getZoom(), lat))
     }
     map.on('click', onClick)
     return () => { map.off('click', onClick) }
@@ -300,6 +301,39 @@ export function MapCanvas() {
     map.on('zoomend', onZoom)
     return () => { map.off('zoomend', onZoom) }
   }, [styleReady])
+
+  // ---------------------------------------------------------------- streams
+  // The stream network around the tap, at terrain resolution. It replaces the
+  // continental network locally, and that network is dimmed rather than removed
+  // because two lines that disagree by a few hundred metres read as an error.
+  const streamsData = useRef<GeoJSON.FeatureCollection | null>(null)
+  const applyStreams = () => {
+    const map = mapRef.current
+    if (!map || !styleLoaded.current) return
+    const src = map.getSource('streams') as GeoJSONSource | undefined
+    if (!src) return
+    src.setData(streamsData.current ?? { type: 'FeatureCollection', features: [] })
+    const dim = streamsData.current?.features.length ? 0.2 : null
+    for (const id of ['rivers0', 'rivers1', 'rivers2']) {
+      if (!map.getLayer(id)) continue
+      map.setPaintProperty(id, 'line-opacity', dim ?? (id === 'rivers1' ? 1 : id === 'rivers2' ? 0.9 : 0.9))
+      if (map.getLayer(`${id}-glow`)) map.setPaintProperty(`${id}-glow`, 'line-opacity', dim ? 0.1 : 1)
+    }
+  }
+  useEffect(() => {
+    const st = s.trace?.streams
+    if (!st || !st.dn.length) { streamsData.current = null; applyStreams(); return }
+    const features: GeoJSON.Feature[] = []
+    for (let k = 0; k < st.dn.length; k++) {
+      const coords: [number, number][] = []
+      for (let i = st.starts[k]; i < st.starts[k + 1]; i++)
+        coords.push([st.coords[i * 2], st.coords[i * 2 + 1]])
+      features.push({ type: 'Feature', properties: { dn: st.dn[k], o: st.fade[k] },
+        geometry: { type: 'LineString', coordinates: coords } })
+    }
+    streamsData.current = { type: 'FeatureCollection', features }
+    applyStreams()
+  }, [s.trace, styleReady])
 
   // ------------------------------------------------------------- watershed
   const applyWatershed = () => {
@@ -370,6 +404,7 @@ export function MapCanvas() {
   // per result and reused every frame; rebuilding them at 60 fps would stall
   // the page for a storm of several thousand drops.
   const routeData = useRef<{ path: [number, number][]; timestamps: number[] }[]>([])
+  const routeLine = useRef<{ line: [number, number][]; cum: Float64Array; total: number } | null>(null)
   const upstreamData = useRef<{ path: [number, number][]; timestamps: number[]; w: number }[]>([])
   const upstreamMaxT = useRef(1)
   const rainData = useRef<any>(null)
@@ -377,17 +412,25 @@ export function MapCanvas() {
 
   useEffect(() => {
     const path = s.trace?.path
-    if (!path) { routeData.current = []; return }
+    if (!path) { routeData.current = []; routeLine.current = null; return }
     // Stop drawing where the route goes under the sea; the animation still
     // runs the whole path, it just is not drawn out into open water.
     const n = Math.max(2, Math.min(path.lon.length, path.seaAt ?? path.lon.length))
-    const coords: [number, number][] = new Array(n)
-    const timestamps: number[] = new Array(n)
-    for (let i = 0; i < n; i++) {
-      coords[i] = [path.lon[i], path.lat[i]]
-      timestamps[i] = i
-    }
-    routeData.current = [{ path: coords, timestamps }]
+    const raw: [number, number][] = new Array(n)
+    for (let i = 0; i < n; i++) raw[i] = [path.lon[i], path.lat[i]]
+    // A flow path steps cell to cell in eight directions; drawn as-is it is a
+    // staircase. Corner cutting turns it into the curve the water follows.
+    const line = chaikin(raw, 2)
+    const cum = new Float64Array(line.length)
+    for (let i = 1; i < line.length; i++)
+      cum[i] = cum[i - 1] + metresBetween(line[i - 1], line[i])
+    routeLine.current = { line, cum, total: cum[cum.length - 1] }
+    // TripsLayer timestamps are metres along the line, so the drop moves at a
+    // steady speed however far apart the vertices are — fine terrain cells
+    // are 20 m and continental ones 250 m.
+    routeData.current = [{ path: line, timestamps: Array.from(cum) }]
+    // the fine trace is only meaningful to look at closely
+    if (path.detail) mapRef.current?.setMaxZoom(16)
   }, [s.trace])
 
   useEffect(() => {
@@ -523,6 +566,11 @@ export function MapCanvas() {
       if (path.lat[i] < s0) s0 = path.lat[i]
       if (path.lat[i] > n) n = path.lat[i]
     }
+    // A route of one or two cells has no extent, and fitBounds on a zero-size
+    // box produces a NaN camera that breaks every layer drawn afterwards.
+    const minSpan = 0.012
+    if (e - w < minSpan) { const m = (e + w) / 2; w = m - minSpan / 2; e = m + minSpan / 2 }
+    if (n - s0 < minSpan) { const m = (n + s0) / 2; s0 = m - minSpan / 2; n = m + minSpan / 2 }
     const phone = isCompact()
     // The sheet and the timeline cover the bottom of a phone screen; framing
     // the route without accounting for them hid the last few kilometres —
@@ -543,18 +591,17 @@ export function MapCanvas() {
   const follow = (p: number) => {
     const map = mapRef.current
     const st = useStore.getState()
-    if (!map || !st.cinematic || !st.trace) return
+    const rl = routeLine.current
+    if (!map || !st.cinematic || !st.trace || !rl) return
     const path = st.trace.path
     const n = path.lon.length
-    const total = path.dist[n - 1]
-    const d = p * total
-    let i = binarySearch(path.dist, d)
-    i = Math.min(n - 2, Math.max(0, i))
-    const t = (d - path.dist[i]) / Math.max(1, path.dist[i + 1] - path.dist[i])
-    const lon = path.lon[i] + (path.lon[i + 1] - path.lon[i]) * t
-    const lat = path.lat[i] + (path.lat[i + 1] - path.lat[i]) * t
-    const ahead = Math.min(n - 1, i + Math.max(3, Math.floor(n / 120)))
-    const bearing = bearingBetween(path.lon[i], path.lat[i], path.lon[ahead], path.lat[ahead])
+    const d = p * rl.total
+    const [lon, lat] = pointAt(rl.line, rl.cum, d)
+    const ahead = pointAt(rl.line, rl.cum, Math.min(rl.total, d + Math.max(400, rl.total / 60)))
+    const bearing = bearingBetween(lon, lat, ahead[0], ahead[1])
+    // the river's size at this point sets how close the camera rides
+    let i = binarySearch(path.dist, p * path.dist[n - 1])
+    i = Math.min(n - 1, Math.max(0, i))
     const area = path.area[i]
     const small = isCompact()
     const zoom = Math.max(small ? 5.6 : 6.2, Math.min(small ? 10.4 : 11.6,
@@ -600,11 +647,10 @@ export function MapCanvas() {
       }))
     }
 
-    if (st.trace && routeData.current.length) {
-      const path = st.trace.path
-      const n = path.lon.length
-      const p = anim.current.progress
-      const now = p * n
+    if (st.trace && routeData.current.length && routeLine.current) {
+      const rl = routeLine.current
+      const d = anim.current.progress * rl.total
+      const head = pointAt(rl.line, rl.cum, d)
 
       layers.push(new PathLayer({
         id: 'route-ghost',
@@ -630,13 +676,11 @@ export function MapCanvas() {
         capRounded: true,
         jointRounded: true,
         opacity: 0.95,
-        trailLength: n,
-        currentTime: now,
+        trailLength: rl.total,
+        currentTime: d,
         shadowEnabled: false,
       }))
 
-      const i = Math.min(n - 1, Math.max(0, Math.floor(now)))
-      const head: [number, number] = [path.lon[i], path.lat[i]]
       layers.push(new ScatterplotLayer({
         id: 'drop-glow',
         data: [{ p: head }],
@@ -707,9 +751,9 @@ export function MapCanvas() {
     }
 
     if (st.probe) {
-      // The click lands anywhere inside a ~400 m flow cell but the route can
-      // only start at that cell's centre, so the ring marks where the journey
-      // actually begins rather than where the finger was.
+      // The ring marks where the journey actually begins. With terrain-resolution
+      // routing that is the tap (or the stream it snapped to); on the
+      // continental grid it is the centre of the ~250 m cell the tap fell in.
       const p0 = st.trace?.path
       const origin = p0?.lon.length
         ? { lon: p0.lon[0], lat: p0.lat[0] }
@@ -768,4 +812,46 @@ function shortestAngle(from: number, to: number): number {
   if (d > 180) d -= 360
   if (d < -180) d += 360
   return d
+}
+
+/** Chaikin corner cutting: each pass replaces every corner with two points a quarter in. */
+function chaikin(pts: [number, number][], passes: number): [number, number][] {
+  let cur = pts
+  for (let k = 0; k < passes && cur.length > 2; k++) {
+    const out: [number, number][] = [cur[0]]
+    for (let i = 0; i < cur.length - 1; i++) {
+      const a = cur[i]
+      const b = cur[i + 1]
+      out.push(
+        [a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25],
+        [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75],
+      )
+    }
+    out.push(cur[cur.length - 1])
+    cur = out
+  }
+  return cur
+}
+
+function metresBetween(a: [number, number], b: [number, number]): number {
+  const p = Math.PI / 180
+  const dx = (b[0] - a[0]) * p * Math.cos(((a[1] + b[1]) / 2) * p)
+  const dy = (b[1] - a[1]) * p
+  return 6371008.8 * Math.hypot(dx, dy)
+}
+
+/** The point `d` metres along a polyline with cumulative distances `cum`. */
+function pointAt(line: [number, number][], cum: Float64Array, d: number): [number, number] {
+  const last = line.length - 1
+  if (d <= 0) return line[0]
+  if (d >= cum[last]) return line[last]
+  let lo = 0
+  let hi = last
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1
+    if (cum[mid] <= d) lo = mid
+    else hi = mid
+  }
+  const t = (d - cum[lo]) / Math.max(1e-9, cum[hi] - cum[lo])
+  return [line[lo][0] + (line[hi][0] - line[lo][0]) * t, line[lo][1] + (line[hi][1] - line[lo][1]) * t]
 }

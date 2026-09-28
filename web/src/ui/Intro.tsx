@@ -59,9 +59,10 @@ export function Intro() {
               </button>
             </div>
             <p className="legal">
-              Routing is computed live in your browser from a D8 flow grid built
-              from public elevation data (~400 m cells). Rivers, basins and
-              names are derived from that grid and Natural Earth. Climate,
+              Routing is computed live in your browser: the first stretch on
+              20–40 m elevation data around where you tap, then along a
+              continental flow grid built from the same data (~250 m cells).
+              Rivers, basins and names come from that grid and Natural Earth. Climate,
               discharge and travel times are transparent models, not gauge
               records. <a href={REPO_URL} style={{ color: 'var(--accent)' }}>Source & method</a>.
             </p>

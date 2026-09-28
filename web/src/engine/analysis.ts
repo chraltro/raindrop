@@ -51,8 +51,20 @@ export const SIZE_CLASSES: [number, string][] = [
   [Infinity, 'Great river'],
 ]
 
-export function sizeClass(area: number): string {
-  for (const [lim, label] of SIZE_CLASSES) if (area < lim) return label
+/**
+ * On 20-40 m terrain a catchment of a few hectares is already a gully, so the
+ * bottom of the scale moves down. The continental grid cannot see anything
+ * below a few cells, which is why it keeps the coarser thresholds.
+ */
+export const FINE_SIZE_CLASSES: [number, string][] = [
+  [0.03, 'Overland flow'],
+  [1.5, 'Headwater stream'],
+  ...SIZE_CLASSES.slice(2),
+]
+
+export function sizeClass(area: number, fine = false): string {
+  for (const [lim, label] of fine ? FINE_SIZE_CLASSES : SIZE_CLASSES)
+    if (area < lim) return label
   return 'Great river'
 }
 
@@ -78,6 +90,8 @@ interface Indexes {
   countries: PolygonIndex
   lakes: PolygonIndex
   basins: Map<string, { id: number; name: string; sea: string; seaGroup: string; runoff: number }>
+  /** The sea nearest a continental-grid cell, for routes that end on a coast. */
+  nearestSea?: (px: number, py: number) => string | null
 }
 
 const nameOf = (f: Feat | null) => (f?.properties?.name as string) ?? undefined
@@ -196,10 +210,12 @@ export function analysePath(path: TracedPath, ix: Indexes, specificRunoff: numbe
   for (let i = 0; i < n; i++) {
     const isLake = inLake[i] === 1
     const nm = isLake ? lake[i] : riverName[i]
-    const label = isLake ? (nm ?? 'Lake') : (nm ?? sizeClass(path.area[i]))
+    const label = isLake ? (nm ?? 'Lake') : (nm ?? sizeClass(path.area[i], path.detail))
     push({
       label,
-      kind: isLake ? 'lake' : path.area[i] < 0.5 ? 'overland' : path.area[i] < 50 ? 'stream' : 'river',
+      kind: isLake ? 'lake'
+        : path.area[i] < (path.detail ? 0.03 : 0.5) ? 'overland'
+        : path.area[i] < 50 ? 'stream' : 'river',
       name: nm,
       from: i ? path.dist[i - 1] : 0,
       to: path.dist[i],
@@ -216,6 +232,8 @@ export function analysePath(path: TracedPath, ix: Indexes, specificRunoff: numbe
   let destination = 'the sea'
   let destinationKind = 'sea'
   if (basin) destination = basin.sea
+  else if (term === CLASS.OCEAN && ix.nearestSea)
+    destination = ix.nearestSea(path.x[n - 1], path.y[n - 1]) ?? 'the sea'
   else if (term === CLASS.LAKE) { destination = lake[n - 1] ?? 'an inland lake'; destinationKind = 'lake' }
   else if (term === CLASS.EDGE) { destination = 'beyond the mapped area'; destinationKind = 'edge' }
   else if (term === CLASS.SINK) { destination = 'an endorheic sink'; destinationKind = 'sink' }
@@ -229,6 +247,8 @@ export function analysePath(path: TracedPath, ix: Indexes, specificRunoff: numbe
   // --- tributaries -----------------------------------------------------
   const tributaries: Tributary[] = []
   for (let i = 1; i < n; i++) {
+    // where the fine trace hands over, the area is re-based rather than gained
+    if (i === path.join) continue
     const gain = path.area[i] - path.area[i - 1]
     if (gain > Math.max(25, path.area[i - 1] * 0.08)) {
       tributaries.push({ at: path.dist[i], area: gain, lon: path.lon[i], lat: path.lat[i] })

@@ -28,6 +28,12 @@ export interface TracedPath {
   truncated: boolean
   /** Draw the route up to here: past it the cells are already under the sea. */
   seaAt: number
+  /** True when the start of the route was traced on terrain-resolution data. */
+  detail?: boolean
+  /** Index where the continental grid takes over from the fine trace. */
+  join?: number
+  /** Elevation of the tapped cell as the DEM has it, before depression filling. */
+  startElev?: number
 }
 
 export interface Watershed {
